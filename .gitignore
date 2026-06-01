@@ -2,3 +2,7 @@
 Thumbs.db
 *.log
 node_modules/
+
+# wrangler local cache
+worker/.wrangler/
+.wrangler/
