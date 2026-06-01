@@ -404,10 +404,12 @@ function openMealSheet(){
     <div class="ai-drop" style="margin-bottom:14px">
       <img id="aiPrev" class="ai-preview hidden">
       <div id="aiStatus" class="tiny muted" style="margin-bottom:10px">📷 写真からカロリー・PFCをAI推定できます</div>
-      <input id="aiFile" type="file" accept="image/*" capture="environment" class="hidden" onchange="onPhotoPicked(event)">
+      <input id="aiCam" type="file" accept="image/*" capture="environment" class="hidden" onchange="onPhotoPicked(event)">
+      <input id="aiLib" type="file" accept="image/*" class="hidden" onchange="onPhotoPicked(event)">
       <div class="btn-row" style="justify-content:center">
-        <button class="btn primary sm" onclick="document.getElementById('aiFile').click()">📷 写真を選ぶ/撮る</button>
-        <button id="aiHiBtn" class="btn sm hidden" onclick="reEstimate(true)">🔍 高精度で再解析</button>
+        <button class="btn primary sm" onclick="document.getElementById('aiCam').click()">📷 撮影</button>
+        <button class="btn sm" onclick="document.getElementById('aiLib').click()">🖼 写真を選択</button>
+        <button id="aiHiBtn" class="btn sm hidden" onclick="reEstimate(true)">🔍 高精度</button>
       </div>
     </div>
     <div class="field"><label>料理名</label><input id="mName" placeholder="例: 鶏むね定食"></div>
