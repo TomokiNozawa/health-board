@@ -370,11 +370,11 @@ async function renderStats(){
     </div>
     <h2 class="sec">カロリー (7日)</h2>
     <div class="card"><div class="chartbox">
-      ${data.map(d=>{const h=(d.kcal/maxK)*100;return `<div class="col"><div class="bb amber" style="height:${h}%"></div><div class="lab">${d.date.slice(8)}</div></div>`}).join('')}
+      ${data.map(d=>{const h=(d.kcal/maxK)*100;return `<div class="col"><div class="vlab">${d.kcal?d.kcal.toLocaleString():''}</div><div class="bb amber" style="height:${h}%"></div><div class="lab">${d.date.slice(8)}</div></div>`}).join('')}
     </div><div class="legend"><span><i style="background:var(--amber)"></i>kcal/日 ・ 目標 ${GOALS.calorie}</span></div></div>
     <h2 class="sec">歩数 (7日)</h2>
     <div class="card"><div class="chartbox">
-      ${data.map(d=>{const h=(d.steps/maxS)*100;return `<div class="col"><div class="bb blue" style="height:${h}%"></div><div class="lab">${d.date.slice(8)}</div></div>`}).join('')}
+      ${data.map(d=>{const h=(d.steps/maxS)*100;return `<div class="col"><div class="vlab">${d.steps?d.steps.toLocaleString():''}</div><div class="bb blue" style="height:${h}%"></div><div class="lab">${d.date.slice(8)}</div></div>`}).join('')}
     </div><div class="legend"><span><i style="background:var(--blue)"></i>歩/日 ・ 目標 ${GOALS.steps}</span></div></div>
     <h2 class="sec">体重推移</h2>
     <div class="card">${weights.length? weights.map(d=>`<div class="row between" style="padding:6px 0"><span class="tiny muted">${d.date}</span><span class="mono" style="font-weight:700">${d.weight} kg</span></div>`).join('') : '<div class="empty">体重を記録すると推移が出ます</div>'}</div>
