@@ -2,8 +2,13 @@ name = "healthboard-ai"
 main = "ai-worker.js"
 compatibility_date = "2024-12-01"
 
-# Secrets (set via: npx wrangler secret put ANTHROPIC_API_KEY):
-#   ANTHROPIC_API_KEY  — Anthropic APIキー
-# Vars:
+# Secrets (set via: npx wrangler secret put <NAME>):
+#   ANTHROPIC_API_KEY  — Anthropic APIキー (写真AI)
+#   INGEST_KEY         — 歩数取り込み用の秘密キー (ショートカットが送る)
+#   HEALTH_EMAIL       — HealthBoardログインメール
+#   HEALTH_PASSWORD    — HealthBoardログインパスワード
+# Vars (非機密。公開アプリにも載っている値):
 [vars]
 ALLOWED_ORIGIN = "https://tomokinozawa.github.io"
+FIREBASE_API_KEY = "AIzaSyBFSjOheMb_epwOXCjviAA_FLQFPNiED6g"
+FIREBASE_DB_URL = "https://task-board-fbf1e-default-rtdb.asia-southeast1.firebasedatabase.app"

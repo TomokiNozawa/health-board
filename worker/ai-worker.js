@@ -17,6 +17,44 @@ export default {
     const origin = request.headers.get("Origin") || "";
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors(env, origin) });
     if (url.pathname === "/health") return json({ status: "ok" }, 200, env, origin);
+
+    // ===== iPhoneショートカット → 歩数/睡眠 取り込み (Phase 2-A) =====
+    // POST /ingest  body: { key, steps?, sleep?, date? }
+    //  - key が INGEST_KEY と一致したら、Firebase に HEALTH_EMAIL/PASS でログインして書き込む
+    //  - CORS不要(ショートカットから叩くため)。RTDBルールは変更不要(正規ユーザーとして書く)
+    if (url.pathname === "/ingest" && request.method === "POST") {
+      try {
+        const b = await request.json();
+        if (!env.INGEST_KEY || b.key !== env.INGEST_KEY) return json({ error: "unauthorized" }, 401, env, origin);
+        const date = /^\d{4}-\d{2}-\d{2}$/.test(b.date || "") ? b.date : jstToday();
+        const steps = b.steps != null ? clampNum(b.steps) : null;
+        const sleep = b.sleep != null ? dec1(b.sleep) : null;
+        if (steps == null && sleep == null) return json({ error: "steps or sleep required" }, 400, env, origin);
+
+        // Firebase Auth REST でログイン → idToken
+        const auth = await (await fetch(
+          "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=" + env.FIREBASE_API_KEY,
+          { method: "POST", headers: { "content-type": "application/json" },
+            body: JSON.stringify({ email: env.HEALTH_EMAIL, password: env.HEALTH_PASSWORD, returnSecureToken: true }) }
+        )).json();
+        if (!auth.idToken) return json({ error: "firebase auth failed", detail: (auth.error && auth.error.message) || "" }, 502, env, origin);
+
+        const base = env.FIREBASE_DB_URL.replace(/\/$/, "") + "/healthData/" + auth.localId + "/days/" + date;
+        const results = {};
+        if (steps != null) {
+          const r = await fetch(base + "/steps.json?auth=" + auth.idToken, { method: "PUT", body: String(steps) });
+          results.steps = r.ok ? steps : ("err " + r.status);
+        }
+        if (sleep != null) {
+          const r = await fetch(base + "/sleep.json?auth=" + auth.idToken, { method: "PUT", body: String(sleep) });
+          results.sleep = r.ok ? sleep : ("err " + r.status);
+        }
+        return json({ ok: true, date, ...results }, 200, env, origin);
+      } catch (e) {
+        return json({ error: String(e && e.message || e) }, 500, env, origin);
+      }
+    }
+
     if (url.pathname !== "/estimate" || request.method !== "POST")
       return json({ error: "not found" }, 404, env, origin);
 
@@ -106,6 +144,7 @@ export default {
 
 function clampNum(v) { const n = Math.round(Number(v)); return isFinite(n) && n >= 0 ? Math.min(n, 100000) : 0; }
 function dec1(v) { const n = Number(v); return isFinite(n) && n >= 0 ? Math.round(Math.min(n, 100000) * 10) / 10 : 0; }
+function jstToday() { const d = new Date(Date.now() + 9 * 3600 * 1000); return d.toISOString().slice(0, 10); }
 function cors(env, origin) {
   const allow = (env.ALLOWED_ORIGIN || "*");
   const ok = allow === "*" || allow.split(",").map(s => s.trim()).includes(origin);
