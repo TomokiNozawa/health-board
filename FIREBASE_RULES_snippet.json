@@ -1,0 +1,10 @@
+{
+  "_comment": "この healthData ブロックを既存の task-board-fbf1e RTDB ルールの rules{} 直下に【追加】する。既存パス (prism-gacha, task-board, _meta 等) は絶対に削除しないこと。現行ルール全文を取得 → このブロックをマージ → 全置換で適用。",
+  "healthData": {
+    "$uid": {
+      ".read": "auth != null && auth.uid === $uid",
+      ".write": "auth != null && auth.uid === $uid",
+      ".validate": "newData.hasChildren() || newData.val() == null"
+    }
+  }
+}
