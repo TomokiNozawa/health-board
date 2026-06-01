@@ -55,6 +55,7 @@ function fmtDateLabel(str){
 }
 function blankDay(){ return { meals:{}, workout:{exercises:{},note:''}, body:{}, steps:null, sleep:null, water:0, mood:null }; }
 function num(v){ const n=parseFloat(v); return isNaN(n)?0:n; }
+function d1(v){ return (Math.round(num(v)*10)/10).toFixed(1); }  // 小数第1位固定 (PFC表示用)
 function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function uuid(){ return 'x'+Math.random().toString(36).slice(2,10)+Date.now().toString(36).slice(-4); }
 function nowHHMM(){ const d=new Date(); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }
@@ -202,7 +203,7 @@ async function renderHome(){
 
     <div class="tiles">
       ${tile('🔥 カロリー', Math.round(t.kcal), GOALS.calorie, 'kcal', 'var(--amber)')}
-      ${tile('🥩 たんぱく質', Math.round(t.p), GOALS.protein, 'g', 'var(--rose)')}
+      ${tile('🥩 たんぱく質', d1(t.p), GOALS.protein, 'g', 'var(--rose)')}
       ${tile('👣 歩数', DAY.steps==null?'—':DAY.steps, GOALS.steps, '歩', 'var(--blue)')}
       ${tile('💧 水分', DAY.water||0, GOALS.water, 'ml', 'var(--teal)')}
     </div>
@@ -236,7 +237,7 @@ function tile(lab,val,goal,unit,color){
 }
 function pfcRow(lab,g,color){
   return `<div class="row between" style="padding:7px 0"><span class="muted tiny">${lab}</span>
-    <span class="mono" style="font-weight:700;color:${color}">${Math.round(g)} g</span></div>`;
+    <span class="mono" style="font-weight:700;color:${color}">${d1(g)} g</span></div>`;
 }
 
 /* ---------- Meals view ---------- */
@@ -248,7 +249,7 @@ function renderMeals(){
       <div class="row between">
         <div><div class="tiny muted">合計</div><div class="big mono">${Math.round(t.kcal)}<small style="font-size:14px;color:var(--sub)"> kcal</small></div></div>
         <div class="tiny muted" style="text-align:right">
-          P ${Math.round(t.p)}g ・ F ${Math.round(t.f)}g ・ C ${Math.round(t.c)}g<br>${t.n} 件
+          P ${d1(t.p)}g ・ F ${d1(t.f)}g ・ C ${d1(t.c)}g<br>${t.n} 件
         </div>
       </div>
       <button class="btn primary block" style="margin-top:12px" onclick="openMealSheet()">🍽 食事を追加</button>
@@ -259,7 +260,7 @@ function renderMeals(){
         return `<div class="item">
           <div class="ico">${m.photo?'📷':'🍽️'}</div>
           <div class="meta"><div class="nm">${esc(m.name||'食事')}</div>
-            <div class="sb">${esc(m.at||'')} ・ P${Math.round(num(m.p))} F${Math.round(num(m.f))} C${Math.round(num(m.c))}</div></div>
+            <div class="sb">${esc(m.at||'')} ・ P${d1(m.p)} F${d1(m.f)} C${d1(m.c)}</div></div>
           <div class="amt">${Math.round(num(m.kcal))}<div class="tiny muted">kcal</div></div>
           <button class="del" onclick="delMeal('${k}')">🗑</button>
         </div>`;
@@ -416,11 +417,11 @@ function openMealSheet(){
     <div class="field"><label>食事時刻</label><input id="mAt" type="time" value="${nowHHMM()}"></div>
     <div class="two">
       <div class="field"><label>カロリー (kcal)</label><input id="mKcal" type="number" inputmode="numeric" placeholder="0"></div>
-      <div class="field"><label>たんぱく質 (g)</label><input id="mP" type="number" inputmode="decimal" placeholder="0"></div>
+      <div class="field"><label>たんぱく質 (g)</label><input id="mP" type="number" inputmode="decimal" step="0.1" placeholder="0.0"></div>
     </div>
     <div class="two">
-      <div class="field"><label>脂質 (g)</label><input id="mF" type="number" inputmode="decimal" placeholder="0"></div>
-      <div class="field"><label>炭水化物 (g)</label><input id="mC" type="number" inputmode="decimal" placeholder="0"></div>
+      <div class="field"><label>脂質 (g)</label><input id="mF" type="number" inputmode="decimal" step="0.1" placeholder="0.0"></div>
+      <div class="field"><label>炭水化物 (g)</label><input id="mC" type="number" inputmode="decimal" step="0.1" placeholder="0.0"></div>
     </div>
     <button class="btn primary block" onclick="saveMeal()">保存</button>`);
   setTimeout(()=>q('#mName')&&q('#mName').focus(),200);
