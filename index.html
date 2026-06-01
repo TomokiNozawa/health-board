@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="theme-color" content="#0f766e">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -178,6 +178,49 @@ nav.tabbar button.on{color:var(--teal)}
 .date-nav{display:flex; align-items:center; justify-content:space-between; margin-bottom:6px}
 .date-nav button{width:40px;height:40px;border-radius:12px;background:var(--card);border:1px solid var(--line);font-size:18px}
 .date-nav .d{font-weight:800; font-size:16px}
+
+/* photo AI bits */
+.ai-drop{border:1.5px dashed var(--line); border-radius:14px; padding:18px; text-align:center; background:var(--card)}
+.ai-preview{width:100%; max-height:200px; object-fit:contain; border-radius:12px; margin-bottom:10px; background:#000}
+.ai-spin{display:inline-block;width:18px;height:18px;border:2px solid var(--line);border-top-color:var(--teal);border-radius:50%;animation:spin .7s linear infinite;vertical-align:middle}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ===== Responsive: small phones (iPhone SE, ~360px以下) ===== */
+@media (max-width:360px){
+  .ring{width:168px;height:168px}
+  .ring svg{width:168px;height:168px}
+  .ring .center .t{font-size:30px}
+  .tile .val{font-size:20px}
+  .big{font-size:26px}
+  main{padding:12px 10px 20px}
+  .three{gap:7px}
+  nav.tabbar button{font-size:9.5px}
+  .btn{padding:0 12px; font-size:14px}
+}
+@media (max-width:330px){
+  .tiles{grid-template-columns:1fr}  /* 極小幅は1列に */
+}
+
+/* ===== Responsive: landscape (横向き) ===== */
+@media (orientation:landscape) and (max-height:500px){
+  .ring{width:140px;height:140px}
+  .ring svg{width:140px;height:140px}
+  .ring .center .t{font-size:26px}
+  .fast-wrap{flex-direction:row; flex-wrap:wrap; justify-content:center; gap:14px}
+  .sheet{max-height:96vh}
+  header{padding-top:calc(env(safe-area-inset-top) + 6px)}
+}
+
+/* ===== Responsive: tablet / PC (561px以上) ===== */
+@media (min-width:600px){
+  .tiles{grid-template-columns:1fr 1fr 1fr 1fr}  /* 横並び4列 */
+  main{padding-top:18px}
+}
+
+/* ハイコントラスト/ダーク既定だが、ユーザのreduced-motion尊重 */
+@media (prefers-reduced-motion:reduce){
+  *{animation-duration:.001s !important; transition-duration:.001s !important}
+}
 </style>
 </head>
 <body>
@@ -233,6 +276,6 @@ nav.tabbar button.on{color:var(--teal)}
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
-<script src="app.js?v=0.1.0"></script>
+<script src="app.js?v=0.2.0"></script>
 </body>
 </html>

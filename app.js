@@ -21,7 +21,7 @@ const DEFAULT_GOALS = {
   calorie: 2000,        // 摂取カロリー目安
   protein: 120,         // たんぱく質 g
   water: 2000,          // 水分 ml
-  steps: 8000,          // 歩数
+  steps: 12000,         // 歩数
 };
 
 // ---- 既定の筋トレ種目 (ユーザーが追加・編集可) ----
@@ -31,6 +31,9 @@ const DEFAULT_EXERCISES = [
   { id:'situp',    name:'腹筋',        type:'count', unit:'回', icon:'🔥' },
   { id:'tachikoro',name:'立ちコロ',    type:'count', unit:'回', icon:'🎡' },
 ];
+
+// 食事写真AI推定 Worker (Phase 2-B)。デプロイ後にURL確定。
+const AI_WORKER_URL = "https://healthboard-ai.tomoki-nozawa.workers.dev";
 
 let app, auth, db, uid=null;
 let GOALS = {...DEFAULT_GOALS};
@@ -398,9 +401,14 @@ function sheet(html){
 
 function openMealSheet(){
   sheet(`<h3>🍽 食事を記録</h3>
-    <div class="card" style="background:var(--card);margin-bottom:14px">
-      <div class="tiny muted" style="margin-bottom:8px">📷 写真AI推定は Phase 2 で実装予定です</div>
-      <button class="btn block" disabled style="opacity:.5">📷 写真から推定（近日）</button>
+    <div class="ai-drop" style="margin-bottom:14px">
+      <img id="aiPrev" class="ai-preview hidden">
+      <div id="aiStatus" class="tiny muted" style="margin-bottom:10px">📷 写真からカロリー・PFCをAI推定できます</div>
+      <input id="aiFile" type="file" accept="image/*" capture="environment" class="hidden" onchange="onPhotoPicked(event)">
+      <div class="btn-row" style="justify-content:center">
+        <button class="btn primary sm" onclick="document.getElementById('aiFile').click()">📷 写真を選ぶ/撮る</button>
+        <button id="aiHiBtn" class="btn sm hidden" onclick="reEstimate(true)">🔍 高精度で再解析</button>
+      </div>
     </div>
     <div class="field"><label>料理名</label><input id="mName" placeholder="例: 鶏むね定食"></div>
     <div class="field"><label>食事時刻</label><input id="mAt" type="time" value="${nowHHMM()}"></div>
@@ -414,6 +422,40 @@ function openMealSheet(){
     </div>
     <button class="btn primary block" onclick="saveMeal()">保存</button>`);
   setTimeout(()=>q('#mName')&&q('#mName').focus(),200);
+}
+
+let _lastPhotoData=null;
+function onPhotoPicked(ev){
+  const file=ev.target.files&&ev.target.files[0]; if(!file) return;
+  // リサイズ(長辺1024)してbase64化 → 通信量とコスト削減
+  const img=new Image(); const rd=new FileReader();
+  rd.onload=()=>{ img.onload=()=>{
+    const max=1024; let{width:w,height:h}=img; const sc=Math.min(1,max/Math.max(w,h));
+    w=Math.round(w*sc); h=Math.round(h*sc);
+    const cv=document.createElement('canvas'); cv.width=w; cv.height=h;
+    cv.getContext('2d').drawImage(img,0,0,w,h);
+    _lastPhotoData=cv.toDataURL('image/jpeg',0.82);
+    const pv=q('#aiPrev'); pv.src=_lastPhotoData; pv.classList.remove('hidden');
+    reEstimate(false);
+  }; img.src=rd.result; };
+  rd.readAsDataURL(file);
+}
+async function reEstimate(hi){
+  if(!_lastPhotoData) return;
+  const st=q('#aiStatus'); st.innerHTML='<span class="ai-spin"></span> '+(hi?'高精度で解析中…':'AI解析中…');
+  try{
+    const r=await fetch(AI_WORKER_URL+'/estimate'+(hi?'?hi=1':''),{
+      method:'POST', headers:{'content-type':'application/json'},
+      body:JSON.stringify({ image:_lastPhotoData, note:q('#mName').value.trim() })
+    });
+    const d=await r.json();
+    if(d.error){ st.textContent='⚠️ 解析失敗: '+d.error; return; }
+    q('#mName').value=d.name||q('#mName').value;
+    q('#mKcal').value=d.kcal||''; q('#mP').value=d.p||''; q('#mF').value=d.f||''; q('#mC').value=d.c||'';
+    const conf={high:'高',medium:'中',low:'低'}[d.confidence]||'';
+    st.innerHTML=`✅ 推定完了 (${d.model==='sonnet'?'高精度':'標準'}・確度${conf}) 必要なら数値を修正してください`;
+    q('#aiHiBtn').classList.remove('hidden');
+  }catch(e){ st.textContent='⚠️ 通信エラー: '+(e.message||e); }
 }
 function saveMeal(){
   const m={ name:q('#mName').value.trim()||'食事', at:q('#mAt').value||nowHHMM(),
@@ -474,7 +516,7 @@ function openGoalSheet(){
 }
 function saveGoals(){
   GOALS={ fastHours:num(q('#gFast').value)||16, calorie:num(q('#gCal').value)||2000,
-    protein:num(q('#gPro').value)||120, water:num(q('#gWat').value)||2000, steps:num(q('#gStep').value)||8000 };
+    protein:num(q('#gPro').value)||120, water:num(q('#gWat').value)||2000, steps:num(q('#gStep').value)||12000 };
   uref('settings/goals').set(GOALS).then(()=>{ closeSheet(); toast('⚙️ 目標を更新'); render(); });
 }
 
@@ -514,8 +556,79 @@ function openAcct(){
   sheet(`<h3>アカウント</h3>
     <div class="card" style="background:var(--card)"><div class="tiny muted">ログイン中</div><div style="font-weight:700">${esc(auth.currentUser.email||'')}</div></div>
     <button class="btn ghost block" style="margin-bottom:8px" onclick="openGoalSheet()">⚙️ 目標値を設定</button>
+    <button class="btn ghost block" style="margin-bottom:8px" onclick="openShortcutSheet()">📲 iPhone歩数 自動連携の設定</button>
     <button class="btn block" onclick="doLogout()">ログアウト</button>`);
 }
+
+/* ---------- Phase 2-A: iPhoneショートカット連携設定 ---------- */
+function openShortcutSheet(){
+  const u=uid||'(ログインしてください)';
+  const dbBase=FIREBASE_CONFIG.databaseURL;
+  const apiKey=FIREBASE_CONFIG.apiKey;
+  sheet(`<h3>📲 iPhone歩数・睡眠の自動連携</h3>
+    <div class="tiny muted" style="margin-bottom:12px">iPhoneの「ショートカット」アプリで毎朝ヘルスケアの歩数・睡眠を自動送信します。下の値をコピーして使ってください(設定は初回のみ)。</div>
+    <div class="card" style="background:var(--card)">
+      <div class="tiny muted">あなたのユーザーID (uid)</div>
+      <div class="row between"><code style="font-size:12px;word-break:break-all">${esc(u)}</code>
+        <button class="btn sm" onclick="copyTxt('${esc(u)}')">コピー</button></div>
+    </div>
+    <div class="card" style="background:var(--card)">
+      <div class="tiny muted">書き込み先URL (歩数・本日分)</div>
+      <div class="row between"><code style="font-size:11px;word-break:break-all">${esc(dbBase)}/healthData/${esc(u)}/days/【日付】/steps.json</code>
+        <button class="btn sm" onclick="copyTxt('${esc(dbBase)}/healthData/${esc(u)}/days/')">コピー</button></div>
+    </div>
+    <div class="card" style="background:var(--card)">
+      <button class="btn primary block" onclick="copyShortcutRecipe()">📋 セットアップ手順を全文コピー</button>
+      <div class="tiny muted" style="margin-top:8px">手順テキスト(ログイン情報を埋めた完全版)をコピーします。Apple純正ショートカットで、①Firebaseログイン→②歩数取得→③送信、を組みます。</div>
+    </div>
+    <details style="margin-top:6px"><summary class="tiny muted" style="cursor:pointer">仕組み(技術メモ)</summary>
+      <div class="tiny muted" style="margin-top:8px;line-height:1.6">
+        ショートカットが Firebase Auth REST でメール/パスワードログイン → idToken取得 → ヘルスケアの歩数を当日パスに PUT します。
+        認証必須なので他人は書き込めません(ルールで保護)。Phase 2の完全自動化(ワンタップ配布用ショートカット)は次段で用意します。
+      </div>
+    </details>`);
+}
+function copyTxt(t){ navigator.clipboard&&navigator.clipboard.writeText(t).then(()=>toast('コピーしました'),()=>toast('コピー失敗')); }
+function copyShortcutRecipe(){
+  const u=uid, dbBase=FIREBASE_CONFIG.databaseURL, apiKey=FIREBASE_CONFIG.apiKey, email=auth.currentUser.email||'';
+  const recipe=`【HealthBoard iPhone歩数 自動連携ショートカット 手順】
+
+■ 用意するもの
+- あなたのログインメール: ${email}
+- パスワード: (HealthBoardのログインパスワード)
+- uid: ${u}
+
+■ ショートカットアプリで以下を作成 (アクションを上から順に追加)
+
+1) [テキスト] 次を入力:
+   ${email}
+   → 変数名「EMAIL」で保存
+
+2) [テキスト] パスワードを入力 → 変数名「PASS」で保存
+
+3) [URLの内容を取得]
+   URL: https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${apiKey}
+   方法: POST / 本文: JSON
+   {"email": EMAIL, "password": PASS, "returnSecureToken": true}
+   → 返ってきたJSONの「idToken」を取得 (辞書から値を取得)、変数「TOKEN」
+
+4) [現在の日付] を取得 → [日付をフォーマット] 形式 yyyy-MM-dd → 変数「TODAY」
+
+5) [ヘルスケアからサンプルを取得] 種類:歩数 / 期間:今日 / 集計:合計 → 変数「STEPS」
+
+6) [URLの内容を取得]
+   URL: ${dbBase}/healthData/${u}/days/【TODAY】/steps.json?auth=【TOKEN】
+   方法: PUT / 本文: STEPS (数値そのまま)
+
+7) (任意) 睡眠も同様に種類:睡眠 → .../sleep.json へ PUT
+
+■ 自動化
+ショートカット → オートメーション → 毎朝7:00 に上記を実行(確認なし)に設定。
+
+※ うまくいかない時は手順をスクショで送ってください。完全自動配布版(タップ1つでインストール)も次段で用意します。`;
+  copyToClipViaTemp(recipe);
+}
+function copyToClipViaTemp(t){ navigator.clipboard?navigator.clipboard.writeText(t).then(()=>toast('📋 手順をコピーしました'),()=>toast('コピー失敗')):toast('コピー不可'); }
 function doLogout(){ auth.signOut().then(()=>{ closeSheet(); toast('ログアウトしました'); }); }
 
 /* ===================== nav ===================== */
