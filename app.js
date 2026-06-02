@@ -38,6 +38,7 @@ const AI_WORKER_URL = "https://healthboard-ai.tomoki-nozawa.workers.dev";
 let app, auth, db, uid=null;
 let GOALS = {...DEFAULT_GOALS};
 let EXERCISES = [...DEFAULT_EXERCISES];
+let FOOD_MASTER = {};   // マイ食品マスタ { id: {name,kcal,p,f,c,uses,ts} }
 let curTab = 'Home';
 let curDate = todayStr();      // 表示中の日付 (YYYY-MM-DD)
 let DAY = blankDay();          // 表示中日付のデータ
@@ -91,6 +92,9 @@ async function loadSettings(){
     EXERCISES = (s.exercises && s.exercises.length) ? s.exercises : [...DEFAULT_EXERCISES];
     if(!s.exercises){ await uref('settings/exercises').set(EXERCISES); }
     if(!s.goals){ await uref('settings/goals').set(GOALS); }
+    FOOD_MASTER = s.foodMaster || {};
+    // マスタはリアルタイム購読 (シート別 session で追加されても反映)
+    uref('settings/foodMaster').on('value', snap=>{ FOOD_MASTER = snap.val()||{}; });
   }catch(e){ console.warn('loadSettings',e); }
 }
 
@@ -179,6 +183,8 @@ async function renderHome(){
   const remain = Math.max(0, GOALS.fastHours-fastH);
   const ringColor = done ? 'var(--green)' : 'var(--teal)';
   const circ = 2*Math.PI*88;
+  // 達成予定時刻 = 最後の食事 + 目標時間
+  const goalTime = last ? new Date(last.getTime()+GOALS.fastHours*3600000) : null;
 
   el.innerHTML = `
     <div class="card">
@@ -191,14 +197,19 @@ async function renderHome(){
           </svg>
           <div class="center">
             <div class="t mono">${last?fmtH(fastH):'--'}</div>
-            <div class="l">絶食時間 ${last?'/ 目標'+GOALS.fastHours+'h':''}</div>
+            <div class="l">経過 / 目標${GOALS.fastHours}h</div>
           </div>
         </div>
         <div class="fast-state ${done?'fasting':'eating'}">
-          ${!last ? '🍽 食事を記録すると計測開始' : done ? '✅ 目標達成！' : '⏳ 達成まであと '+fmtH(remain)}
+          ${!last ? '🍽 食事を記録すると計測開始' : done ? '✅ '+GOALS.fastHours+'時間 達成！' : '⏳ 達成まであと '+fmtH(remain)}
         </div>
-        <div class="tiny muted">${esc(eatLabel)}</div>
       </div>
+      ${last ? `<div class="fast-detail">
+        <div class="fd-row"><span>🎯 ${GOALS.fastHours}時間 達成${done?'時刻':'予定'}</span><b class="${done?'':'hl'}">${fmtDateTime(goalTime)}</b></div>
+        <div class="fd-row"><span>⏱ 現在の絶食時間</span><b class="mono">${fmtHM(fastH)}</b></div>
+        <div class="fd-row"><span>⌛ 達成まで</span><b class="mono">${done?'達成済み':fmtHM(remain)}</b></div>
+        <div class="fd-row"><span>🍽 最後の食事</span><b>${fmtDateTime(last)}</b></div>
+      </div>`:''}
     </div>
 
     <div class="tiles">
@@ -229,6 +240,11 @@ async function renderHome(){
     </div>`;
 }
 function fmtH(h){ const hh=Math.floor(h); const mm=Math.round((h-hh)*60); return mm>=60?(hh+1)+':00':hh+':'+String(mm).padStart(2,'0'); }
+function fmtHM(h){ let total=Math.max(0,Math.round(h*60)); const hh=Math.floor(total/60), mm=total%60; return hh+'時間'+String(mm).padStart(2,'0')+'分'; }
+function fmtDateTime(d){ if(!d) return '—'; const M=d.getMonth()+1, D=d.getDate(), w=['日','月','火','水','木','金','土'][d.getDay()];
+  const hh=String(d.getHours()).padStart(2,'0'), mm=String(d.getMinutes()).padStart(2,'0');
+  const ds=todayStr(d); const lbl = ds===todayStr()?'今日':(ds===shiftDate(todayStr(),1)?'明日':(ds===shiftDate(todayStr(),-1)?'昨日':`${M}/${D}(${w})`));
+  return `${lbl} ${hh}:${mm}`; }
 function tile(lab,val,goal,unit,color){
   const pct = goal? Math.min(100, (num(val)/goal)*100):0;
   return `<div class="tile"><div class="lab">${lab}</div>
@@ -400,8 +416,21 @@ function sheet(html){
     <div class="sheet"><div class="grip"></div>${html}</div></div>`;
 }
 
+function foodMasterList(){
+  return Object.entries(FOOD_MASTER).map(([id,f])=>({id,...f}))
+    .sort((a,b)=>(b.uses||0)-(a.uses||0) || (b.ts||0)-(a.ts||0));
+}
 function openMealSheet(){
+  const fav=foodMasterList();
+  const favHtml = fav.length ? `
+    <div class="field">
+      <label>マイ食品から選ぶ <span class="muted">(${fav.length}件)</span></label>
+      <input id="foodSearch" placeholder="🔍 名前で絞り込み" oninput="renderFoodChips(this.value)" style="margin-bottom:8px">
+      <div id="foodChips" class="food-chips"></div>
+    </div>
+    <div class="or-sep"><span>または手入力 / 写真</span></div>` : '';
   sheet(`<h3>🍽 食事を記録</h3>
+    ${favHtml}
     <div class="ai-drop" style="margin-bottom:14px">
       <img id="aiPrev" class="ai-preview hidden">
       <div id="aiStatus" class="tiny muted" style="margin-bottom:10px">📷 写真からカロリー・PFCをAI推定できます</div>
@@ -424,7 +453,31 @@ function openMealSheet(){
       <div class="field"><label>炭水化物 (g)</label><input id="mC" type="number" inputmode="decimal" step="0.1" placeholder="0.0"></div>
     </div>
     <button class="btn primary block" onclick="saveMeal()">保存</button>`);
-  setTimeout(()=>q('#mName')&&q('#mName').focus(),200);
+  if(foodMasterList().length) renderFoodChips('');
+}
+function renderFoodChips(filter){
+  const box=q('#foodChips'); if(!box) return;
+  const f=(filter||'').trim();
+  let list=foodMasterList();
+  if(f) list=list.filter(x=>x.name.includes(f));
+  list=list.slice(0,30);
+  box.innerHTML = list.length ? list.map(x=>
+    `<button class="food-chip" onclick='pickFood("${x.id}")'>
+       <span class="fc-name">${esc(x.name)}</span>
+       <span class="fc-kcal">${Math.round(num(x.kcal))}kcal</span>
+       <span class="fc-del" onclick='event.stopPropagation();delFood("${x.id}")'>×</span>
+     </button>`).join('') : '<div class="tiny muted" style="padding:4px">該当なし</div>';
+}
+function pickFood(id){
+  const f=FOOD_MASTER[id]; if(!f) return;
+  q('#mName').value=f.name||''; q('#mKcal').value=f.kcal||''; q('#mP').value=f.p||''; q('#mF').value=f.f||''; q('#mC').value=f.c||'';
+  const st=q('#aiStatus'); if(st) st.textContent='✅ マイ食品「'+(f.name||'')+'」を反映 (時刻を確認して保存)';
+  toast('「'+(f.name||'')+'」を反映');
+}
+function delFood(id){
+  const f=FOOD_MASTER[id]; if(!f) return;
+  if(!confirm('マイ食品「'+(f.name||'')+'」を削除しますか?(記録済みの食事は残ります)')) return;
+  uref('settings/foodMaster/'+id).remove().then(()=>{ delete FOOD_MASTER[id]; renderFoodChips(q('#foodSearch')?q('#foodSearch').value:''); toast('削除しました'); });
 }
 
 let _lastPhotoData=null;
@@ -464,6 +517,19 @@ function saveMeal(){
   const m={ name:q('#mName').value.trim()||'食事', at:q('#mAt').value||nowHHMM(),
     kcal:num(q('#mKcal').value), p:num(q('#mP').value), f:num(q('#mF').value), c:num(q('#mC').value), ts:Date.now() };
   uref('days/'+curDate+'/meals/'+uuid()).set(m).then(()=>{ closeSheet(); toast('🍽 記録しました'); });
+  upsertFoodMaster(m);
+}
+// 同名(完全一致)があれば栄養値を更新+uses++、なければ新規。マスタは名前で一意化
+function upsertFoodMaster(m){
+  if(!m.name || m.name==='食事') return;
+  const existing=Object.entries(FOOD_MASTER).find(([id,f])=>f.name===m.name);
+  if(existing){
+    const [id,f]=existing;
+    uref('settings/foodMaster/'+id).update({ kcal:m.kcal, p:m.p, f:m.f, c:m.c, uses:(num(f.uses)||0)+1, ts:Date.now() });
+  } else {
+    const id=uuid();
+    uref('settings/foodMaster/'+id).set({ name:m.name, kcal:m.kcal, p:m.p, f:m.f, c:m.c, uses:1, ts:Date.now() });
+  }
 }
 
 function openBodySheet(){

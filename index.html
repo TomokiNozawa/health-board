@@ -70,6 +70,12 @@ h2.sec{font-size:13px; color:var(--sub); text-transform:uppercase; letter-spacin
 .fast-state{font-size:14px; font-weight:700; padding:6px 14px; border-radius:20px; margin-top:4px}
 .fast-state.fasting{background:rgba(20,184,166,.16); color:var(--teal)}
 .fast-state.eating{background:rgba(245,158,11,.16); color:var(--amber)}
+.fast-detail{margin-top:14px; border-top:1px solid var(--line); padding-top:10px}
+.fast-detail .fd-row{display:flex; justify-content:space-between; align-items:center; padding:7px 2px; font-size:14px}
+.fast-detail .fd-row + .fd-row{border-top:1px solid rgba(39,55,92,.5)}
+.fast-detail .fd-row span{color:var(--sub)}
+.fast-detail .fd-row b{font-weight:700}
+.fast-detail .fd-row b.hl{color:var(--teal)}
 
 /* ===== Stat tiles ===== */
 .tiles{display:grid; grid-template-columns:1fr 1fr; gap:12px}
@@ -180,6 +186,16 @@ nav.tabbar button.on{color:var(--teal)}
 .date-nav button{width:40px;height:40px;border-radius:12px;background:var(--card);border:1px solid var(--line);font-size:18px}
 .date-nav .d{font-weight:800; font-size:16px}
 
+/* food master chips */
+.food-chips{display:flex; flex-direction:column; gap:7px; max-height:230px; overflow-y:auto}
+.food-chip{display:flex; align-items:center; gap:10px; width:100%; text-align:left; padding:11px 12px; border-radius:12px; background:var(--card); border:1px solid var(--line); min-height:46px}
+.food-chip:active{transform:scale(.985)}
+.food-chip .fc-name{flex:1; font-weight:700; font-size:15px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.food-chip .fc-kcal{font-size:13px; color:var(--amber); font-weight:700; font-variant-numeric:tabular-nums; flex:none}
+.food-chip .fc-del{flex:none; width:26px; height:26px; border-radius:50%; display:flex; align-items:center; justify-content:center; color:var(--sub); font-size:18px; background:var(--bg2)}
+.or-sep{display:flex; align-items:center; gap:10px; margin:4px 0 14px; color:var(--sub); font-size:12px}
+.or-sep::before,.or-sep::after{content:""; flex:1; height:1px; background:var(--line)}
+
 /* photo AI bits */
 .ai-drop{border:1.5px dashed var(--line); border-radius:14px; padding:18px; text-align:center; background:var(--card)}
 .ai-preview{width:100%; max-height:200px; object-fit:contain; border-radius:12px; margin-bottom:10px; background:#000}
@@ -277,6 +293,6 @@ nav.tabbar button.on{color:var(--teal)}
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
-<script src="app.js?v=0.3.1"></script>
+<script src="app.js?v=0.4.0"></script>
 </body>
 </html>
