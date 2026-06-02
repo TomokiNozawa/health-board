@@ -20,6 +20,8 @@ const DEFAULT_GOALS = {
   fastHours: 16,        // 16:8 ファスティング
   calorie: 2000,        // 摂取カロリー目安
   protein: 120,         // たんぱく質 g
+  fat: 60,              // 脂質 g
+  carb: 250,            // 炭水化物 g
   water: 2000,          // 水分 ml
   steps: 12000,         // 歩数
   targetWeight: 0,      // 目標体重 kg (0=未設定)
@@ -228,9 +230,9 @@ async function renderHome(){
 
     <h2 class="sec">今日のPFCバランス</h2>
     <div class="card">
-      ${pfcRow('P たんぱく質', t.p, 'var(--rose)')}
-      ${pfcRow('F 脂質', t.f, 'var(--amber)')}
-      ${pfcRow('C 炭水化物', t.c, 'var(--blue)')}
+      ${pfcRow('P たんぱく質', t.p, GOALS.protein, 'var(--rose)')}
+      ${pfcRow('F 脂質', t.f, GOALS.fat, 'var(--amber)')}
+      ${pfcRow('C 炭水化物', t.c, GOALS.carb, 'var(--blue)')}
     </div>
 
     <h2 class="sec">クイック記録</h2>
@@ -258,9 +260,16 @@ function tile(lab,val,goal,unit,color){
     <div class="val mono">${val}<small> / ${goal}${unit}</small></div>
     <div class="bar"><i style="width:${pct}%;background:${color}"></i></div></div>`;
 }
-function pfcRow(lab,g,color){
-  return `<div class="row between" style="padding:7px 0"><span class="muted tiny">${lab}</span>
-    <span class="mono" style="font-weight:700;color:${color}">${d1(g)} g</span></div>`;
+function pfcRow(lab,val,goal,color){
+  const pct = goal? Math.min(100,(num(val)/goal)*100):0;
+  const over = goal && num(val)>goal;
+  return `<div style="padding:7px 0">
+    <div class="row between" style="margin-bottom:5px">
+      <span class="muted tiny">${lab}</span>
+      <span class="mono tiny" style="font-weight:700;color:${color}">${d1(val)}<span class="muted" style="font-weight:600"> / ${goal||'—'} g</span> ${over?'<span style="color:var(--rose)">超過</span>':''}</span>
+    </div>
+    <div class="bar"><i style="width:${pct}%;background:${over?'var(--rose)':color}"></i></div>
+  </div>`;
 }
 
 /* ---------- Meals view ---------- */
@@ -752,10 +761,12 @@ function openGoalSheet(){
       <div class="field"><label>絶食目標 (h)</label><input id="gFast" type="number" inputmode="decimal" value="${GOALS.fastHours}"></div>
       <div class="field"><label>カロリー (kcal)</label><input id="gCal" type="number" inputmode="numeric" value="${GOALS.calorie}"></div>
     </div>
-    <div class="two">
-      <div class="field"><label>たんぱく質 (g)</label><input id="gPro" type="number" inputmode="numeric" value="${GOALS.protein}"></div>
-      <div class="field"><label>水分 (ml)</label><input id="gWat" type="number" inputmode="numeric" value="${GOALS.water}"></div>
+    <div class="three">
+      <div class="field"><label>P たんぱく質(g)</label><input id="gPro" type="number" inputmode="numeric" value="${GOALS.protein}"></div>
+      <div class="field"><label>F 脂質(g)</label><input id="gFat" type="number" inputmode="numeric" value="${GOALS.fat}"></div>
+      <div class="field"><label>C 炭水化物(g)</label><input id="gCarb" type="number" inputmode="numeric" value="${GOALS.carb}"></div>
     </div>
+    <div class="field"><label>水分 (ml)</label><input id="gWat" type="number" inputmode="numeric" value="${GOALS.water}"></div>
     <div class="two">
       <div class="field"><label>歩数</label><input id="gStep" type="number" inputmode="numeric" value="${GOALS.steps}"></div>
       <div class="field"><label>目標体重 (kg・任意)</label><input id="gTW" type="number" inputmode="decimal" step="0.1" value="${GOALS.targetWeight||''}" placeholder="未設定"></div>
@@ -764,7 +775,8 @@ function openGoalSheet(){
 }
 function saveGoals(){
   GOALS={ fastHours:num(q('#gFast').value)||16, calorie:num(q('#gCal').value)||2000,
-    protein:num(q('#gPro').value)||120, water:num(q('#gWat').value)||2000, steps:num(q('#gStep').value)||12000,
+    protein:num(q('#gPro').value)||120, fat:num(q('#gFat').value)||60, carb:num(q('#gCarb').value)||250,
+    water:num(q('#gWat').value)||2000, steps:num(q('#gStep').value)||12000,
     targetWeight:num(q('#gTW').value)||0 };
   uref('settings/goals').set(GOALS).then(()=>{ closeSheet(); toast('⚙️ 目標を更新'); render(); });
 }
