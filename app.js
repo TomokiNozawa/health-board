@@ -22,6 +22,7 @@ const DEFAULT_GOALS = {
   protein: 120,         // たんぱく質 g
   water: 2000,          // 水分 ml
   steps: 12000,         // 歩数
+  targetWeight: 0,      // 目標体重 kg (0=未設定)
 };
 
 // ---- 既定の筋トレ種目 (ユーザーが追加・編集可) ----
@@ -54,7 +55,7 @@ function fmtDateLabel(str){
   const w=['日','月','火','水','木','金','土'][dt.getDay()];
   return `${m}/${d}(${w})`;
 }
-function blankDay(){ return { meals:{}, workout:{exercises:{},note:''}, body:{}, steps:null, sleep:null, water:0, mood:null }; }
+function blankDay(){ return { meals:{}, workout:{exercises:{},note:''}, body:{}, steps:null, sleep:null, water:0, mood:null, active:null }; }
 function num(v){ const n=parseFloat(v); return isNaN(n)?0:n; }
 function d1(v){ return (Math.round(num(v)*10)/10).toFixed(1); }  // 小数第1位固定 (PFC表示用)
 function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
@@ -219,6 +220,12 @@ async function renderHome(){
       ${tile('💧 水分', DAY.water||0, GOALS.water, 'ml', 'var(--teal)')}
     </div>
 
+    ${DAY.active!=null ? `<div class="card">
+      <div class="row between"><span class="muted tiny">🔥 摂取 ${Math.round(t.kcal)} − 🏃 消費 ${Math.round(num(DAY.active))}(運動)</span>
+        <b class="mono" style="color:${(t.kcal-num(DAY.active))<=GOALS.calorie?'var(--green)':'var(--rose)'}">収支 ${Math.round(t.kcal-num(DAY.active))>0?'+':''}${Math.round(t.kcal-num(DAY.active))} kcal</b></div>
+      <div class="tiny muted" style="margin-top:4px">※消費はApple Watchのアクティブカロリー(基礎代謝は含みません)</div>
+    </div>` : ''}
+
     <h2 class="sec">今日のPFCバランス</h2>
     <div class="card">
       ${pfcRow('P たんぱく質', t.p, 'var(--rose)')}
@@ -257,9 +264,43 @@ function pfcRow(lab,g,color){
 }
 
 /* ---------- Meals view ---------- */
+// 食事区分の定義 (順序=表示順)
+const MEAL_TYPES=[
+  {key:'breakfast', label:'朝食', icon:'🌅'},
+  {key:'lunch',     label:'昼食', icon:'🍱'},
+  {key:'dinner',    label:'夕食', icon:'🌙'},
+  {key:'snack',     label:'間食', icon:'🍪'},
+];
+function mealTypeOf(m){ return MEAL_TYPES.find(t=>t.key===m.type) || {key:'other',label:'その他',icon:'🍽️'}; }
+
 function renderMeals(){
   const el=q('#viewMeals'); const t=mealTotals();
-  const keys=Object.keys(DAY.meals).sort((a,b)=>(DAY.meals[a].at||'').localeCompare(DAY.meals[b].at||''));
+  // 区分ごとにグループ化 (区分内は時刻順)
+  const groups={};
+  for(const k in DAY.meals){ const tp=mealTypeOf(DAY.meals[k]).key; (groups[tp]=groups[tp]||[]).push(k); }
+  const order=[...MEAL_TYPES.map(t=>t.key),'other'];
+  let groupHtml='';
+  for(const gk of order){
+    const ks=(groups[gk]||[]).sort((a,b)=>(DAY.meals[a].at||'').localeCompare(DAY.meals[b].at||''));
+    if(!ks.length) continue;
+    const tdef=MEAL_TYPES.find(t=>t.key===gk)||{label:'その他',icon:'🍽️'};
+    let gk_=0,gp=0,gf=0,gc=0;
+    ks.forEach(k=>{const m=DAY.meals[k];gk_+=num(m.kcal);gp+=num(m.p);gf+=num(m.f);gc+=num(m.c);});
+    groupHtml+=`<div class="card">
+      <div class="row between" style="margin-bottom:6px">
+        <b>${tdef.icon} ${tdef.label}</b>
+        <span class="tiny muted mono">${Math.round(gk_)}kcal ・ P${d1(gp)} F${d1(gf)} C${d1(gc)}</span>
+      </div>
+      ${ks.map(k=>{const m=DAY.meals[k];
+        return `<div class="item" onclick="openMealEdit('${k}')" style="cursor:pointer">
+          <div class="ico">${m.photo?'📷':'🍽️'}</div>
+          <div class="meta"><div class="nm">${esc(m.name||'食事')}</div>
+            <div class="sb">${esc(m.at||'')} ・ P${d1(m.p)} F${d1(m.f)} C${d1(m.c)}</div></div>
+          <div class="amt">${Math.round(num(m.kcal))}<div class="tiny muted">kcal</div></div>
+          <button class="del" onclick="event.stopPropagation();delMeal('${k}')">🗑</button>
+        </div>`;}).join('')}
+    </div>`;
+  }
   el.innerHTML = `
     <div class="card">
       <div class="row between">
@@ -268,20 +309,12 @@ function renderMeals(){
           P ${d1(t.p)}g ・ F ${d1(t.f)}g ・ C ${d1(t.c)}g<br>${t.n} 件
         </div>
       </div>
-      <button class="btn primary block" style="margin-top:12px" onclick="openMealSheet()">🍽 食事を追加</button>
+      <div class="btn-row" style="margin-top:12px">
+        <button class="btn primary grow" onclick="openMealSheet()">🍽 食事を追加</button>
+        <button class="btn grow" onclick="copyPrevDayMeals()">📋 前日コピー</button>
+      </div>
     </div>
-    <div class="card">
-      ${keys.length? keys.map(k=>{
-        const m=DAY.meals[k];
-        return `<div class="item">
-          <div class="ico">${m.photo?'📷':'🍽️'}</div>
-          <div class="meta"><div class="nm">${esc(m.name||'食事')}</div>
-            <div class="sb">${esc(m.at||'')} ・ P${d1(m.p)} F${d1(m.f)} C${d1(m.c)}</div></div>
-          <div class="amt">${Math.round(num(m.kcal))}<div class="tiny muted">kcal</div></div>
-          <button class="del" onclick="delMeal('${k}')">🗑</button>
-        </div>`;
-      }).join('') : '<div class="empty">まだ記録がありません</div>'}
-    </div>`;
+    ${groupHtml || '<div class="card"><div class="empty">まだ記録がありません</div></div>'}`;
 }
 
 /* ---------- Workout view ---------- */
@@ -342,7 +375,7 @@ function renderBody(){
     </div>
     <h2 class="sec">歩数・睡眠</h2>
     <div class="card">
-      <div class="tiny muted" style="margin-bottom:10px">Phase 2 で iPhoneショートカット自動連携予定。今は手入力できます。</div>
+      <div class="tiny muted" style="margin-bottom:10px">歩数・体重はiPhoneショートカットで自動連携できます(アカウント画面の設定参照)。手入力も可。</div>
       <div class="btn-row">
         <button class="btn grow" onclick="openStepsSheet()">👣 歩数を入力</button>
         <button class="btn grow" onclick="openSleepSheet()">😴 睡眠を入力</button>
@@ -355,49 +388,101 @@ function bodyTile(ic,lab,val,unit,fn){
 }
 
 /* ---------- Stats view ---------- */
+let _statsRange=7;  // 7 or 30
+function setStatsRange(n){ _statsRange=n; renderStats(); }
 async function renderStats(){
-  const el=q('#viewStats');
-  el.innerHTML=`<div class="empty">7日間のデータを集計中…</div>`;
-  const days=[]; for(let i=6;i>=0;i--) days.push(shiftDate(todayStr(),-i));
+  const el=q('#viewStats'); const N=_statsRange;
+  el.innerHTML=`<div class="empty">${N}日間のデータを集計中…</div>`;
+  const days=[]; for(let i=N-1;i>=0;i--) days.push(shiftDate(todayStr(),-i));
   const snaps=await Promise.all(days.map(d=> uref('days/'+d).once('value').then(s=>s.val()||{}) ));
   const data=days.map((d,i)=>{
     const v=snaps[i]; let kcal=0,p=0;
     const meals=(v.meals)||{}; for(const k in meals){ kcal+=num(meals[k].kcal); p+=num(meals[k].p); }
-    return { date:d, kcal:Math.round(kcal), protein:Math.round(p), steps:v.steps||0, weight:(v.body&&v.body.weight)||null };
+    const ats=Object.values(meals).map(m=>m.at).filter(Boolean).sort();
+    const fast = ats.length? (ats.length>=2? hhDiff(ats[0],ats[ats.length-1])<=(24-GOALS.fastHours)+0.5 : true) : null;
+    return { date:d, kcal:Math.round(kcal), protein:Math.round(p), steps:v.steps||0,
+      weight:(v.body&&v.body.weight)||null, fast };
   });
-  // fasting streak
+  // fasting streak (全日から)
   let streak=0; const allDays=await uref('days').once('value').then(s=>s.val()||{});
-  const sortedDates=Object.keys(allDays).sort().reverse();
-  // (簡易: meals 件数>0 かつ 最初と最後の食事間が 8h 以内なら達成扱い)
-  for(const ds of sortedDates){
+  for(const ds of Object.keys(allDays).sort().reverse()){
     const meals=allDays[ds].meals||{}; const ats=Object.values(meals).map(m=>m.at).filter(Boolean).sort();
     if(ats.length<1) break;
     const span = ats.length>=2 ? hhDiff(ats[0],ats[ats.length-1]) : 0;
     if(span <= (24-GOALS.fastHours)+0.5) streak++; else break;
   }
-  const maxK=Math.max(GOALS.calorie, ...data.map(d=>d.kcal),1);
-  const maxS=Math.max(GOALS.steps, ...data.map(d=>d.steps),1);
+  // サマリ集計
+  const recK=data.filter(d=>d.kcal>0), recS=data.filter(d=>d.steps>0);
+  const avgK=recK.length?Math.round(recK.reduce((a,d)=>a+d.kcal,0)/recK.length):0;
+  const avgP=recK.length?Math.round(recK.reduce((a,d)=>a+d.protein,0)/recK.length):0;
+  const avgS=recS.length?Math.round(recS.reduce((a,d)=>a+d.steps,0)/recS.length):0;
+  const fastDays=data.filter(d=>d.fast===true).length, fastRec=data.filter(d=>d.fast!==null).length;
+  const maxK=Math.max(GOALS.calorie,...data.map(d=>d.kcal),1);
+  const maxS=Math.max(GOALS.steps,...data.map(d=>d.steps),1);
   const weights=data.filter(d=>d.weight!=null);
+  // 体重予測(G): 直近の傾きから目標体重到達まで
+  let predHtml='';
+  if(GOALS.targetWeight>0 && weights.length>=2){
+    const first=weights[0], last=weights[weights.length-1];
+    const dDays=(new Date(last.date)-new Date(first.date))/86400000;
+    const slope=dDays>0?(num(last.weight)-num(first.weight))/dDays:0; // kg/日
+    const remain=num(last.weight)-GOALS.targetWeight;
+    let msg;
+    if(Math.abs(remain)<0.1) msg='🎯 目標体重に到達しています!';
+    else if(slope===0||((remain>0)!==(slope<0))) msg='現在のペースでは目標体重に近づいていません(直近トレンド '+(slope>0?'+':'')+ (slope*7).toFixed(2)+'kg/週)';
+    else { const wk=Math.abs(remain/(slope*7)); msg=`このペース(${(slope*7).toFixed(2)}kg/週)なら目標 ${GOALS.targetWeight}kg まで 約${Math.ceil(wk)}週間`; }
+    predHtml=`<div class="card" style="background:var(--card)"><div class="tiny muted">🔮 目標体重予測</div><div style="font-weight:700;margin-top:4px">${msg}</div></div>`;
+  }
   el.innerHTML=`
-    <div class="card row between">
-      <div><div class="tiny muted">ファスティング連続達成</div><div class="streak">🔥 ${streak} 日</div></div>
-      <div style="text-align:right"><div class="tiny muted">平均カロリー(7日)</div>
-        <div class="big mono" style="font-size:22px">${Math.round(data.reduce((a,d)=>a+d.kcal,0)/7)}</div></div>
+    <div class="seg" style="margin-bottom:12px">
+      <button class="${N===7?'on':''}" onclick="setStatsRange(7)">7日</button>
+      <button class="${N===30?'on':''}" onclick="setStatsRange(30)">30日</button>
     </div>
-    <h2 class="sec">カロリー (7日)</h2>
+    <h2 class="sec">${N}日サマリー</h2>
+    <div class="card">
+      <div class="row between" style="padding:6px 0"><span class="muted tiny">🔥 ファスティング連続達成</span><b class="streak">${streak} 日</b></div>
+      <div class="row between" style="padding:6px 0;border-top:1px solid var(--line)"><span class="muted tiny">⏱ ${N}日の達成日数</span><b class="mono">${fastDays} / ${fastRec} 日</b></div>
+      <div class="row between" style="padding:6px 0;border-top:1px solid var(--line)"><span class="muted tiny">🔥 平均カロリー</span><b class="mono">${avgK} kcal</b></div>
+      <div class="row between" style="padding:6px 0;border-top:1px solid var(--line)"><span class="muted tiny">🥩 平均たんぱく質</span><b class="mono">${avgP} g</b></div>
+      <div class="row between" style="padding:6px 0;border-top:1px solid var(--line)"><span class="muted tiny">👣 平均歩数</span><b class="mono">${avgS.toLocaleString()} 歩</b></div>
+    </div>
+    ${predHtml}
+    <h2 class="sec">体重推移 ${GOALS.targetWeight>0?`<span class="muted" style="font-weight:400">(目標 ${GOALS.targetWeight}kg)</span>`:''}</h2>
+    <div class="card">${lineChart(weights.map(d=>({x:d.date,y:num(d.weight)})), GOALS.targetWeight>0?GOALS.targetWeight:null, 'kg')}</div>
+    <h2 class="sec">カロリー (${N}日)</h2>
     <div class="card"><div class="chartbox">
-      ${data.map(d=>{const h=(d.kcal/maxK)*100;return `<div class="col"><div class="vlab">${d.kcal?d.kcal.toLocaleString():''}</div><div class="bb amber" style="height:${h}%"></div><div class="lab">${d.date.slice(8)}</div></div>`}).join('')}
+      ${data.map(d=>{const h=(d.kcal/maxK)*100;return `<div class="col"><div class="vlab">${N<=7&&d.kcal?d.kcal.toLocaleString():''}</div><div class="bb amber" style="height:${h}%"></div><div class="lab">${d.date.slice(8)}</div></div>`}).join('')}
     </div><div class="legend"><span><i style="background:var(--amber)"></i>kcal/日 ・ 目標 ${GOALS.calorie}</span></div></div>
-    <h2 class="sec">歩数 (7日)</h2>
+    <h2 class="sec">歩数 (${N}日)</h2>
     <div class="card"><div class="chartbox">
-      ${data.map(d=>{const h=(d.steps/maxS)*100;return `<div class="col"><div class="vlab">${d.steps?d.steps.toLocaleString():''}</div><div class="bb blue" style="height:${h}%"></div><div class="lab">${d.date.slice(8)}</div></div>`}).join('')}
+      ${data.map(d=>{const h=(d.steps/maxS)*100;return `<div class="col"><div class="vlab">${N<=7&&d.steps?d.steps.toLocaleString():''}</div><div class="bb blue" style="height:${h}%"></div><div class="lab">${d.date.slice(8)}</div></div>`}).join('')}
     </div><div class="legend"><span><i style="background:var(--blue)"></i>歩/日 ・ 目標 ${GOALS.steps}</span></div></div>
-    <h2 class="sec">体重推移</h2>
-    <div class="card">${weights.length? weights.map(d=>`<div class="row between" style="padding:6px 0"><span class="tiny muted">${d.date}</span><span class="mono" style="font-weight:700">${d.weight} kg</span></div>`).join('') : '<div class="empty">体重を記録すると推移が出ます</div>'}</div>
     <div style="height:8px"></div>
     <button class="btn ghost block" onclick="openGoalSheet()">⚙️ 目標値を設定</button>`;
 }
 function hhDiff(a,b){ const pa=a.split(':'),pb=b.split(':'); return (pb[0]*60+ +pb[1]-(pa[0]*60+ +pa[1]))/60; }
+// SVG折れ線グラフ (points=[{x:label,y:val}], goalLine=目標値 or null)
+function lineChart(points, goalLine, unit){
+  if(!points.length) return '<div class="empty">記録すると推移グラフが出ます</div>';
+  if(points.length===1){ const p=points[0]; return `<div class="row between" style="padding:6px 0"><span class="tiny muted">${p.x}</span><span class="mono" style="font-weight:700">${p.y} ${unit}</span></div><div class="tiny muted">2回以上記録するとグラフになります</div>`; }
+  const W=320,H=120,pad=8;
+  const ys=points.map(p=>p.y).concat(goalLine!=null?[goalLine]:[]);
+  let mn=Math.min(...ys), mx=Math.max(...ys); if(mn===mx){mn-=1;mx+=1;} const span=mx-mn;
+  const xstep=(W-pad*2)/(points.length-1);
+  const X=i=>pad+i*xstep, Y=v=>pad+(H-pad*2)*(1-(v-mn)/span);
+  const path=points.map((p,i)=>`${i?'L':'M'}${X(i).toFixed(1)},${Y(p.y).toFixed(1)}`).join(' ');
+  const dots=points.map((p,i)=>`<circle cx="${X(i).toFixed(1)}" cy="${Y(p.y).toFixed(1)}" r="3" fill="var(--teal)"/>`).join('');
+  const goal=goalLine!=null?`<line x1="${pad}" y1="${Y(goalLine).toFixed(1)}" x2="${W-pad}" y2="${Y(goalLine).toFixed(1)}" stroke="var(--amber)" stroke-width="1.5" stroke-dasharray="5 4"/>`:'';
+  const first=points[0], last=points[points.length-1]; const diff=(last.y-first.y);
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:130px">
+    ${goal}
+    <path d="${path}" fill="none" stroke="var(--teal)" stroke-width="2"/>
+    ${dots}
+  </svg>
+  <div class="row between" style="margin-top:6px"><span class="tiny muted">${first.x} ${first.y}${unit}</span>
+    <span class="tiny" style="font-weight:700;color:${diff<=0?'var(--green)':'var(--rose)'}">${diff>0?'+':''}${diff.toFixed(1)}${unit}</span>
+    <span class="tiny muted">${last.x} ${last.y}${unit}</span></div>`;
+}
 
 /* ===================== WRITES ===================== */
 function delMeal(k){ if(confirm('この食事を削除しますか?')) uref('days/'+curDate+'/meals/'+k).remove().then(()=>toast('削除しました')); }
@@ -417,10 +502,21 @@ function sheet(html){
 }
 
 function foodMasterList(){
+  // ピン留め(pin)を最優先 → 使用回数 → 新しい順
   return Object.entries(FOOD_MASTER).map(([id,f])=>({id,...f}))
-    .sort((a,b)=>(b.uses||0)-(a.uses||0) || (b.ts||0)-(a.ts||0));
+    .sort((a,b)=>(b.pin?1:0)-(a.pin?1:0) || (b.uses||0)-(a.uses||0) || (b.ts||0)-(a.ts||0));
 }
+function togglePinFood(id){
+  const f=FOOD_MASTER[id]; if(!f) return;
+  const nv=!f.pin; f.pin=nv;
+  uref('settings/foodMaster/'+id+'/pin').set(nv).then(()=>{ renderFoodChips(q('#foodSearch')?q('#foodSearch').value:''); toast(nv?'⭐ ピン留め':'ピン解除'); });
+}
+// 区分の既定値: 時刻から推定
+function guessMealType(){ const h=new Date().getHours(); if(h<10)return'breakfast'; if(h<15)return'lunch'; if(h<21)return'dinner'; return'snack'; }
+let _mealCart=[];  // まとめ登録用カート [{name,kcal,p,f,c}]
+
 function openMealSheet(){
+  _mealCart=[];
   const fav=foodMasterList();
   const favHtml = fav.length ? `
     <div class="field">
@@ -430,6 +526,13 @@ function openMealSheet(){
     </div>
     <div class="or-sep"><span>または手入力 / 写真</span></div>` : '';
   sheet(`<h3>🍽 食事を記録</h3>
+    <div class="field"><label>区分</label>
+      <div class="seg" id="mealTypeSeg">
+        ${MEAL_TYPES.map(t=>`<button data-mt="${t.key}" onclick="pickMealType('${t.key}')">${t.icon}${t.label}</button>`).join('')}
+      </div>
+    </div>
+    <div class="field"><label>時刻 (この回の食事)</label><input id="mAt" type="time" value="${nowHHMM()}"></div>
+    <div class="or-sep"><span>品目を追加(複数まとめOK)</span></div>
     ${favHtml}
     <div class="ai-drop" style="margin-bottom:14px">
       <img id="aiPrev" class="ai-preview hidden">
@@ -443,7 +546,6 @@ function openMealSheet(){
       </div>
     </div>
     <div class="field"><label>料理名</label><input id="mName" placeholder="例: 鶏むね定食"></div>
-    <div class="field"><label>食事時刻</label><input id="mAt" type="time" value="${nowHHMM()}"></div>
     <div class="two">
       <div class="field"><label>カロリー (kcal)</label><input id="mKcal" type="number" inputmode="numeric" placeholder="0"></div>
       <div class="field"><label>たんぱく質 (g)</label><input id="mP" type="number" inputmode="decimal" step="0.1" placeholder="0.0"></div>
@@ -452,9 +554,33 @@ function openMealSheet(){
       <div class="field"><label>脂質 (g)</label><input id="mF" type="number" inputmode="decimal" step="0.1" placeholder="0.0"></div>
       <div class="field"><label>炭水化物 (g)</label><input id="mC" type="number" inputmode="decimal" step="0.1" placeholder="0.0"></div>
     </div>
+    <button class="btn block" style="margin-bottom:10px" onclick="addToCart()">＋ この品をリストに追加</button>
+    <div id="cartBox"></div>
     <button class="btn primary block" onclick="saveMeal()">保存</button>`);
+  pickMealType(guessMealType());
+  renderCart();
   if(foodMasterList().length) renderFoodChips('');
 }
+let _mealType='lunch';
+function pickMealType(k){ _mealType=k; const seg=q('#mealTypeSeg'); if(seg) seg.querySelectorAll('button').forEach(b=>b.classList.toggle('on',b.dataset.mt===k)); }
+function curMealItem(){ return { name:q('#mName').value.trim(), kcal:num(q('#mKcal').value), p:num(q('#mP').value), f:num(q('#mF').value), c:num(q('#mC').value) }; }
+function clearMealInputs(){ ['mName','mKcal','mP','mF','mC'].forEach(id=>{const e=q('#'+id); if(e)e.value='';}); const st=q('#aiStatus'); if(st)st.textContent='📷 写真からカロリー・PFCをAI推定できます'; const pv=q('#aiPrev'); if(pv)pv.classList.add('hidden'); _lastPhotoData=null; }
+function addToCart(){
+  const it=curMealItem();
+  if(!it.name && !it.kcal){ toast('料理名かカロリーを入力してください'); return; }
+  it.name=it.name||'食事'; _mealCart.push(it); clearMealInputs(); renderCart();
+  toast('「'+it.name+'」を追加'); q('#mName')&&q('#mName').focus();
+}
+function renderCart(){
+  const box=q('#cartBox'); if(!box) return;
+  if(!_mealCart.length){ box.innerHTML=''; return; }
+  const tk=_mealCart.reduce((a,x)=>a+num(x.kcal),0);
+  box.innerHTML=`<div class="card" style="background:var(--card);margin-bottom:10px">
+    <div class="tiny muted" style="margin-bottom:4px">追加リスト(${_mealCart.length}品・計${Math.round(tk)}kcal) — 保存で全部登録</div>
+    ${_mealCart.map((x,i)=>`<div class="row between" style="padding:4px 0"><span class="tiny">${esc(x.name)}</span><span class="tiny muted">${Math.round(num(x.kcal))}kcal <span onclick="rmCart(${i})" style="color:var(--bad);margin-left:6px;cursor:pointer">×</span></span></div>`).join('')}
+  </div>`;
+}
+function rmCart(i){ _mealCart.splice(i,1); renderCart(); }
 function renderFoodChips(filter){
   const box=q('#foodChips'); if(!box) return;
   const f=(filter||'').trim();
@@ -463,6 +589,7 @@ function renderFoodChips(filter){
   list=list.slice(0,30);
   box.innerHTML = list.length ? list.map(x=>
     `<button class="food-chip" onclick='pickFood("${x.id}")'>
+       <span class="fc-pin" onclick='event.stopPropagation();togglePinFood("${x.id}")' style="color:${x.pin?'var(--amber)':'var(--line)'}">${x.pin?'⭐':'☆'}</span>
        <span class="fc-name">${esc(x.name)}</span>
        <span class="fc-kcal">${Math.round(num(x.kcal))}kcal</span>
        <span class="fc-del" onclick='event.stopPropagation();delFood("${x.id}")'>×</span>
@@ -514,10 +641,59 @@ async function reEstimate(hi){
   }catch(e){ st.textContent='⚠️ 通信エラー: '+(e.message||e); }
 }
 function saveMeal(){
-  const m={ name:q('#mName').value.trim()||'食事', at:q('#mAt').value||nowHHMM(),
-    kcal:num(q('#mKcal').value), p:num(q('#mP').value), f:num(q('#mF').value), c:num(q('#mC').value), ts:Date.now() };
-  uref('days/'+curDate+'/meals/'+uuid()).set(m).then(()=>{ closeSheet(); toast('🍽 記録しました'); });
-  upsertFoodMaster(m);
+  const at=q('#mAt').value||nowHHMM();
+  const items=[..._mealCart];
+  // 入力欄に残っている品も対象に
+  const cur=curMealItem();
+  if(cur.name || cur.kcal){ cur.name=cur.name||'食事'; items.push(cur); }
+  if(!items.length){ toast('品目がありません'); return; }
+  const updates={};
+  items.forEach(it=>{
+    const m={ name:it.name, at, type:_mealType, kcal:num(it.kcal), p:num(it.p), f:num(it.f), c:num(it.c), ts:Date.now() };
+    updates['days/'+curDate+'/meals/'+uuid()]=m;
+    upsertFoodMaster(m);
+  });
+  uref('').update(updates).then(()=>{ closeSheet(); toast('🍽 '+items.length+'品 記録しました'); });
+}
+// ---- 食事編集(全項目修正可) ----
+function openMealEdit(k){
+  const m=DAY.meals[k]; if(!m) return;
+  _mealType=m.type||guessMealType();
+  sheet(`<h3>🍽 食事を編集</h3>
+    <div class="field"><label>区分</label>
+      <div class="seg" id="mealTypeSeg">
+        ${MEAL_TYPES.map(t=>`<button data-mt="${t.key}" onclick="pickMealType('${t.key}')">${t.icon}${t.label}</button>`).join('')}
+      </div>
+    </div>
+    <div class="field"><label>時刻</label><input id="eAt" type="time" value="${esc(m.at||nowHHMM())}"></div>
+    <div class="field"><label>料理名</label><input id="eName" value="${esc(m.name||'')}"></div>
+    <div class="two">
+      <div class="field"><label>カロリー (kcal)</label><input id="eKcal" type="number" inputmode="numeric" value="${num(m.kcal)||''}"></div>
+      <div class="field"><label>たんぱく質 (g)</label><input id="eP" type="number" inputmode="decimal" step="0.1" value="${num(m.p)||''}"></div>
+    </div>
+    <div class="two">
+      <div class="field"><label>脂質 (g)</label><input id="eF" type="number" inputmode="decimal" step="0.1" value="${num(m.f)||''}"></div>
+      <div class="field"><label>炭水化物 (g)</label><input id="eC" type="number" inputmode="decimal" step="0.1" value="${num(m.c)||''}"></div>
+    </div>
+    <button class="btn primary block" style="margin-bottom:8px" onclick="saveMealEdit('${k}')">更新</button>
+    <button class="btn ghost block" onclick="delMeal('${k}');closeSheet()">🗑 この食事を削除</button>`);
+  pickMealType(_mealType);
+}
+function saveMealEdit(k){
+  const upd={ name:q('#eName').value.trim()||'食事', at:q('#eAt').value||nowHHMM(), type:_mealType,
+    kcal:num(q('#eKcal').value), p:num(q('#eP').value), f:num(q('#eF').value), c:num(q('#eC').value) };
+  uref('days/'+curDate+'/meals/'+k).update(upd).then(()=>{ closeSheet(); toast('✏️ 更新しました'); });
+}
+// ---- 前日の食事をコピー ----
+async function copyPrevDayMeals(){
+  const prev=shiftDate(curDate,-1);
+  const snap=(await uref('days/'+prev+'/meals').once('value')).val()||{};
+  const ks=Object.keys(snap);
+  if(!ks.length){ toast('前日('+fmtDateLabel(prev)+')の食事記録がありません'); return; }
+  if(!confirm(fmtDateLabel(prev)+'の食事 '+ks.length+'品を今日にコピーしますか?')) return;
+  const updates={};
+  ks.forEach(k=>{ const m={...snap[k], ts:Date.now()}; updates['days/'+curDate+'/meals/'+uuid()]=m; });
+  uref('').update(updates).then(()=>toast('📋 '+ks.length+'品コピーしました'));
 }
 // 同名(完全一致)があれば栄養値を更新+uses++、なければ新規。マスタは名前で一意化
 function upsertFoodMaster(m){
@@ -580,12 +756,16 @@ function openGoalSheet(){
       <div class="field"><label>たんぱく質 (g)</label><input id="gPro" type="number" inputmode="numeric" value="${GOALS.protein}"></div>
       <div class="field"><label>水分 (ml)</label><input id="gWat" type="number" inputmode="numeric" value="${GOALS.water}"></div>
     </div>
-    <div class="field"><label>歩数</label><input id="gStep" type="number" inputmode="numeric" value="${GOALS.steps}"></div>
+    <div class="two">
+      <div class="field"><label>歩数</label><input id="gStep" type="number" inputmode="numeric" value="${GOALS.steps}"></div>
+      <div class="field"><label>目標体重 (kg・任意)</label><input id="gTW" type="number" inputmode="decimal" step="0.1" value="${GOALS.targetWeight||''}" placeholder="未設定"></div>
+    </div>
     <button class="btn primary block" onclick="saveGoals()">保存</button>`);
 }
 function saveGoals(){
   GOALS={ fastHours:num(q('#gFast').value)||16, calorie:num(q('#gCal').value)||2000,
-    protein:num(q('#gPro').value)||120, water:num(q('#gWat').value)||2000, steps:num(q('#gStep').value)||12000 };
+    protein:num(q('#gPro').value)||120, water:num(q('#gWat').value)||2000, steps:num(q('#gStep').value)||12000,
+    targetWeight:num(q('#gTW').value)||0 };
   uref('settings/goals').set(GOALS).then(()=>{ closeSheet(); toast('⚙️ 目標を更新'); render(); });
 }
 
@@ -690,6 +870,12 @@ function copyShortcutRecipe(){
    方法: PUT / 本文: STEPS (数値そのまま)
 
 7) (任意) 睡眠も同様に種類:睡眠 → .../sleep.json へ PUT
+
+■ 体重連携(測った日だけ・/ingest 方式が簡単)
+別ショートカット or 既存に追記:
+- [ヘルスケアサンプルを検索] 種類:体重 / 開始日:今日 / 制限1件 → [if 件数>0] のときだけ実行
+- [URLの内容を取得] URL: ${AI_WORKER_URL}/ingest 方法:POST 本文:JSON / key=送信キー(hbk_… 歩数と同じ) / weight=体重値 / day=today(前日確定なら yesterday)
+体脂肪は種類を「体脂肪率」にして fat フィールドで同様に。測ってない日はヘルスケアに値が無く送信されない=記録なし。
 
 ■ 自動化
 ショートカット → オートメーション → 毎朝7:00 に上記を実行(確認なし)に設定。

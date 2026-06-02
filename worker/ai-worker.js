@@ -30,9 +30,15 @@ export default {
         const date = /^\d{4}-\d{2}-\d{2}$/.test(b.date || "")
           ? b.date
           : (b.day === "yesterday" ? jstDay(-1) : jstDay(0));
-        const steps = b.steps != null ? clampNum(b.steps) : null;
-        const sleep = b.sleep != null ? dec1(b.sleep) : null;
-        if (steps == null && sleep == null) return json({ error: "steps or sleep required" }, 400, env, origin);
+        const steps  = b.steps  != null ? clampNum(b.steps) : null;
+        const sleep  = b.sleep  != null ? dec1(b.sleep)     : null;
+        // 体重・体脂肪: 値があり > 0 の時だけ書く(測ってない日は送らない=記録なし)
+        const weight = (b.weight != null && Number(b.weight) > 0) ? dec1(b.weight) : null;
+        const fat    = (b.fat    != null && Number(b.fat)    > 0) ? dec1(b.fat)    : null;
+        // アクティブ消費カロリー(Apple Watch)
+        const active = b.active != null ? clampNum(b.active) : null;
+        if (steps == null && sleep == null && weight == null && fat == null && active == null)
+          return json({ error: "steps/sleep/weight/fat/active のいずれかが必要" }, 400, env, origin);
 
         // Firebase Auth REST でログイン → idToken
         const auth = await (await fetch(
@@ -51,6 +57,19 @@ export default {
         if (sleep != null) {
           const r = await fetch(base + "/sleep.json?auth=" + auth.idToken, { method: "PUT", body: String(sleep) });
           results.sleep = r.ok ? sleep : ("err " + r.status);
+        }
+        // 体重/体脂肪は days/{date}/body/ 配下 (アプリの DAY.body と同じ場所)
+        if (weight != null) {
+          const r = await fetch(base + "/body/weight.json?auth=" + auth.idToken, { method: "PUT", body: String(weight) });
+          results.weight = r.ok ? weight : ("err " + r.status);
+        }
+        if (fat != null) {
+          const r = await fetch(base + "/body/fat.json?auth=" + auth.idToken, { method: "PUT", body: String(fat) });
+          results.fat = r.ok ? fat : ("err " + r.status);
+        }
+        if (active != null) {
+          const r = await fetch(base + "/active.json?auth=" + auth.idToken, { method: "PUT", body: String(active) });
+          results.active = r.ok ? active : ("err " + r.status);
         }
         return json({ ok: true, date, ...results }, 200, env, origin);
       } catch (e) {
