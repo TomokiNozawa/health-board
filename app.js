@@ -30,9 +30,9 @@ const DEFAULT_GOALS = {
 // ---- 既定の筋トレ種目 (ユーザーが追加・編集可) ----
 const DEFAULT_EXERCISES = [
   { id:'yt_abs',   name:'YouTube腹筋', type:'check', icon:'📺' },
-  { id:'squat',    name:'スクワット',  type:'count', unit:'回', icon:'🦵' },
-  { id:'situp',    name:'腹筋',        type:'count', unit:'回', icon:'🔥' },
-  { id:'tachikoro',name:'立ちコロ',    type:'count', unit:'回', icon:'🎡' },
+  { id:'squat',    name:'スクワット',  type:'count', unit:'回', icon:'🦵', quick:[1,10,20] },
+  { id:'tachikoro',name:'立ちコロ',    type:'count', unit:'回', icon:'🎡', quick:[1,5,10] },
+  { id:'situp',    name:'腹筋',        type:'count', unit:'回', icon:'🔥', quick:[25,50,75] },
 ];
 
 // 食事写真AI推定 Worker (Phase 2-B)。デプロイ後にURL確定。
@@ -93,6 +93,15 @@ async function loadSettings(){
     const s = (await uref('settings').once('value')).val() || {};
     GOALS = {...DEFAULT_GOALS, ...(s.goals||{})};
     EXERCISES = (s.exercises && s.exercises.length) ? s.exercises : [...DEFAULT_EXERCISES];
+    // クイック追加プリセット & 既定の並び順を反映 (移行用)
+    {
+      const _q={}, _o={}; DEFAULT_EXERCISES.forEach((e,i)=>{ if(e.quick)_q[e.id]=e.quick; _o[e.id]=i; });
+      const _sig=x=>JSON.stringify(x.map(e=>e.id))+JSON.stringify(x.map(e=>e.quick||null));
+      const _before=_sig(EXERCISES);
+      EXERCISES.forEach(e=>{ if(_q[e.id]) e.quick=_q[e.id]; });
+      EXERCISES.sort((a,b)=>((_o[a.id]??99)-(_o[b.id]??99)));
+      if(s.exercises && _sig(EXERCISES)!==_before){ await uref('settings/exercises').set(EXERCISES); }
+    }
     if(!s.exercises){ await uref('settings/exercises').set(EXERCISES); }
     if(!s.goals){ await uref('settings/goals').set(GOALS); }
     FOOD_MASTER = s.foodMaster || {};
@@ -352,9 +361,7 @@ function renderWorkout(){
               <button onclick="bumpCount('${ex.id}',5)">＋</button>
             </div></div>
           <div class="row" style="gap:8px;margin-top:8px;justify-content:flex-end">
-            <button class="btn sm" onclick="bumpCount('${ex.id}',-1)">−1</button>
-            <button class="btn sm" onclick="bumpCount('${ex.id}',1)">+1</button>
-            <button class="btn sm" onclick="bumpCount('${ex.id}',10)">+10</button>
+            ${(ex.quick||[1,10]).map(qn=>`<button class="btn sm" onclick="bumpCount('${ex.id}',${qn})">+${qn}</button>`).join('')}
             ${ex.unit?`<span class="tiny muted" style="align-self:center">${esc(ex.unit)}</span>`:''}
           </div></div>`;
       }
