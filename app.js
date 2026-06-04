@@ -529,11 +529,10 @@ function openMealSheet(){
   const fav=foodMasterList();
   const favHtml = fav.length ? `
     <div class="field">
-      <label>マイ食品から選ぶ <span class="muted">(${fav.length}件)</span></label>
+      <label>マイ食品から選ぶ <span class="muted">(${fav.length}件・タップで即追加)</span></label>
       <input id="foodSearch" placeholder="🔍 名前で絞り込み" oninput="renderFoodChips(this.value)" style="margin-bottom:8px">
       <div id="foodChips" class="food-chips"></div>
-    </div>
-    <div class="or-sep"><span>または手入力 / 写真</span></div>` : '';
+    </div>` : '';
   sheet(`<h3>🍽 食事を記録</h3>
     <div class="field"><label>区分</label>
       <div class="seg" id="mealTypeSeg">
@@ -543,6 +542,8 @@ function openMealSheet(){
     <div class="field"><label>時刻 (この回の食事)</label><input id="mAt" type="time" value="${nowHHMM()}"></div>
     <div class="or-sep"><span>品目を追加(複数まとめOK)</span></div>
     ${favHtml}
+    <div id="cartBox"></div>
+    <div class="or-sep"><span>または手入力 / 写真</span></div>
     <div class="ai-drop" style="margin-bottom:14px">
       <img id="aiPrev" class="ai-preview hidden">
       <div id="aiStatus" class="tiny muted" style="margin-bottom:10px">📷 写真からカロリー・PFCをAI推定できます</div>
@@ -564,7 +565,6 @@ function openMealSheet(){
       <div class="field"><label>炭水化物 (g)</label><input id="mC" type="number" inputmode="decimal" step="0.1" placeholder="0.0"></div>
     </div>
     <button class="btn block" style="margin-bottom:10px" onclick="addToCart()">＋ この品をリストに追加</button>
-    <div id="cartBox"></div>
     <button class="btn primary block" onclick="saveMeal()">保存</button>`);
   pickMealType(guessMealType());
   renderCart();
@@ -578,7 +578,7 @@ function addToCart(){
   const it=curMealItem();
   if(!it.name && !it.kcal){ toast('料理名かカロリーを入力してください'); return; }
   it.name=it.name||'食事'; _mealCart.push(it); clearMealInputs(); renderCart();
-  toast('「'+it.name+'」を追加'); q('#mName')&&q('#mName').focus();
+  toast('「'+it.name+'」を追加');
 }
 function renderCart(){
   const box=q('#cartBox'); if(!box) return;
@@ -606,9 +606,10 @@ function renderFoodChips(filter){
 }
 function pickFood(id){
   const f=FOOD_MASTER[id]; if(!f) return;
-  q('#mName').value=f.name||''; q('#mKcal').value=f.kcal||''; q('#mP').value=f.p||''; q('#mF').value=f.f||''; q('#mC').value=f.c||'';
-  const st=q('#aiStatus'); if(st) st.textContent='✅ マイ食品「'+(f.name||'')+'」を反映 (時刻を確認して保存)';
-  toast('「'+(f.name||'')+'」を反映');
+  // タップで即カートに追加 (フォーム往復・スクロール不要、キーボードも出さない)
+  _mealCart.push({ name:f.name||'食事', kcal:num(f.kcal), p:num(f.p), f:num(f.f), c:num(f.c) });
+  renderCart();
+  toast('「'+(f.name||'')+'」を追加');
 }
 function delFood(id){
   const f=FOOD_MASTER[id]; if(!f) return;
