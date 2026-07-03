@@ -113,11 +113,15 @@ async function loadSettings(){
 function watchDay(){
   if(unsubDay){ unsubDay(); unsubDay=null; }
   const ref = uref('days/'+curDate);
+  let first=true;
   const cb = ref.on('value', snap=>{
-    DAY = Object.assign(blankDay(), snap.val()||{});
-    DAY.meals = DAY.meals||{}; DAY.workout = DAY.workout||{exercises:{},note:''};
-    DAY.workout.exercises = DAY.workout.exercises||{}; DAY.body = DAY.body||{};
-    render();
+    const d = Object.assign(blankDay(), snap.val()||{});
+    d.meals = d.meals||{}; d.workout = d.workout||{exercises:{},note:''};
+    d.workout.exercises = d.workout.exercises||{}; d.body = d.body||{};
+    // 楽観更新済みの自分の書込エコーなら再描画しない (カウンター連打中のDOM再構築=タップ取りこぼしを防ぐ)
+    const same = !first && JSON.stringify(d)===JSON.stringify(DAY);
+    first=false; DAY=d;
+    if(!same) render();
   });
   unsubDay = ()=>ref.off('value', cb);
 }
@@ -269,8 +273,9 @@ function fmtDateTime(d){ if(!d) return '—'; const M=d.getMonth()+1, D=d.getDat
   return `${lbl} ${hh}:${mm}`; }
 function tile(lab,val,goal,unit,color){
   const pct = goal? Math.min(100, (num(val)/goal)*100):0;
-  return `<div class="tile"><div class="lab">${lab}</div>
-    <div class="val mono">${val}<small> / ${goal}${unit}</small></div>
+  const disp = typeof val==='number' ? val.toLocaleString() : val;  // 歩数等の5桁はカンマ区切り
+  return `<div class="tile"><div class="lab"><span>${lab}</span><span class="goal">/ ${Number(goal).toLocaleString()}${unit}</span></div>
+    <div class="val mono">${disp}<small> ${unit}</small></div>
     <div class="bar"><i style="width:${pct}%;background:${color}"></i></div></div>`;
 }
 function pfcRow(lab,val,goal,color){
@@ -361,7 +366,7 @@ function renderWorkout(){
           <div class="row between"><div class="row" style="gap:10px"><span style="font-size:22px">${ex.icon||'🏋️'}</span><b>${esc(ex.name)}</b></div>
             <div class="counter">
               <button onclick="bumpCount('${ex.id}',-5)">−</button>
-              <span class="n mono">${n}</span>
+              <span class="n mono" id="cnt_${ex.id}">${n}</span>
               <button onclick="bumpCount('${ex.id}',5)">＋</button>
             </div></div>
           <div class="row" style="gap:8px;margin-top:8px;justify-content:flex-end">
@@ -518,9 +523,15 @@ function delMeal(k){ if(confirm('この食事を削除しますか?')) uref('day
 function addWater(ml){ const v=(DAY.water||0)+ml; uref('days/'+curDate+'/water').set(v).then(()=>toast('💧 +'+ml+'ml')); }
 function setMood(i){ uref('days/'+curDate+'/mood').set(i); }
 function toggleCheck(id){ const cur=DAY.workout.exercises[id]; const nv=!(cur&&cur.done);
+  DAY.workout.exercises[id]={done:nv}; render();  // 楽観更新: 書込を待たず即時反映
   uref('days/'+curDate+'/workout/exercises/'+id).set({done:nv}).then(()=>nv&&toast('✅ 完了!')); }
-function bumpCount(id,delta){ const cur=DAY.workout.exercises[id]; const n=Math.max(0,(cur?num(cur.count):0)+delta);
-  uref('days/'+curDate+'/workout/exercises/'+id).set({count:n}); }
+function bumpCount(id,delta){
+  const cur=DAY.workout.exercises[id]; const n=Math.max(0,(cur?num(cur.count):0)+delta);
+  DAY.workout.exercises[id]={count:n};                        // 楽観更新
+  const s=q('#cnt_'+id); if(s) s.textContent=n;               // 全再描画せず数字だけ即書き換え
+  uref('days/'+curDate+'/workout/exercises/'+id+'/count')
+    .transaction(c=>Math.max(0, num(c)+delta));               // 連打でも加算を取りこぼさない
+}
 function saveWoNote(){ const v=q('#woNote').value; uref('days/'+curDate+'/workout/note').set(v); }
 
 /* ===================== SHEETS (modals) ===================== */
