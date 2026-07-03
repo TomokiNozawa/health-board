@@ -30,9 +30,9 @@ const DEFAULT_GOALS = {
 // ---- 既定の筋トレ種目 (ユーザーが追加・編集可) ----
 const DEFAULT_EXERCISES = [
   { id:'yt_abs',   name:'YouTube腹筋', type:'check', icon:'📺' },
-  { id:'squat',    name:'スクワット',  type:'count', unit:'回', icon:'🦵', quick:[1,10,20] },
-  { id:'tachikoro',name:'立ちコロ',    type:'count', unit:'回', icon:'🎡', quick:[1,5,10] },
-  { id:'situp',    name:'腹筋',        type:'count', unit:'回', icon:'🔥', quick:[25,50,75] },
+  { id:'squat',    name:'スクワット',  type:'count', unit:'回', icon:'🦵', step:5, quick:[1,10,20] },
+  { id:'tachikoro',name:'立ちコロ',    type:'count', unit:'回', icon:'🎡', step:5, quick:[1,5,10] },
+  { id:'situp',    name:'腹筋',        type:'count', unit:'回', icon:'🔥', step:5, quick:[25,50,75] },
 ];
 
 // 食事写真AI推定 Worker (Phase 2-B)。デプロイ後にURL確定。
@@ -93,12 +93,12 @@ async function loadSettings(){
     const s = (await uref('settings').once('value')).val() || {};
     GOALS = {...DEFAULT_GOALS, ...(s.goals||{})};
     EXERCISES = (s.exercises && s.exercises.length) ? s.exercises : [...DEFAULT_EXERCISES];
-    // クイック追加プリセット & 既定の並び順を反映 (移行用)
+    // クイック追加プリセット・±刻み・既定の並び順を反映 (移行用。未設定の時だけ埋める=ユーザー編集は上書きしない)
     {
-      const _q={}, _o={}; DEFAULT_EXERCISES.forEach((e,i)=>{ if(e.quick)_q[e.id]=e.quick; _o[e.id]=i; });
-      const _sig=x=>JSON.stringify(x.map(e=>e.id))+JSON.stringify(x.map(e=>e.quick||null));
+      const _q={}, _o={}, _s={}; DEFAULT_EXERCISES.forEach((e,i)=>{ if(e.quick)_q[e.id]=e.quick; if(e.step)_s[e.id]=e.step; _o[e.id]=i; });
+      const _sig=x=>JSON.stringify(x.map(e=>[e.id, e.quick||null, e.step||null]));
       const _before=_sig(EXERCISES);
-      EXERCISES.forEach(e=>{ if(_q[e.id]) e.quick=_q[e.id]; });
+      EXERCISES.forEach(e=>{ if(_q[e.id] && !e.quick) e.quick=_q[e.id]; if(_s[e.id] && e.step==null) e.step=_s[e.id]; });
       EXERCISES.sort((a,b)=>((_o[a.id]??99)-(_o[b.id]??99)));
       if(s.exercises && _sig(EXERCISES)!==_before){ await uref('settings/exercises').set(EXERCISES); }
     }
@@ -362,12 +362,13 @@ function renderWorkout(){
             <div class="chip ${on?'on':''}">${on?'✓ 完了':'未実施'}</div></div></div>`;
       } else {
         const n=v?num(v.count):0;
+        const st=Math.max(1,num(ex.step)||1);  // ±ボタンの刻みは種目ごと (既定種目=5、追加種目=1、編集可)
         return `<div class="card">
           <div class="row between"><div class="row" style="gap:10px"><span style="font-size:22px">${ex.icon||'🏋️'}</span><b>${esc(ex.name)}</b></div>
             <div class="counter">
-              <button onclick="bumpCount('${ex.id}',-5)">−</button>
+              <button class="${st>1?'stp':''}" onclick="bumpCount('${ex.id}',-${st})">${st>1?'−'+st:'−'}</button>
               <span class="n mono" id="cnt_${ex.id}">${n}</span>
-              <button onclick="bumpCount('${ex.id}',5)">＋</button>
+              <button class="${st>1?'stp':''}" onclick="bumpCount('${ex.id}',${st})">${st>1?'+'+st:'＋'}</button>
             </div></div>
           <div class="row" style="gap:8px;margin-top:8px;justify-content:flex-end">
             ${(ex.quick||[1,10]).map(qn=>`<button class="btn sm" onclick="bumpCount('${ex.id}',${qn})">+${qn}</button>`).join('')}
@@ -830,28 +831,60 @@ function saveGoals(){
 /* ---------- 種目エディタ ---------- */
 function openExerciseEditor(){
   sheet(`<h3>⚙️ 筋トレ種目の編集</h3>
+    <div class="tiny muted" style="margin-bottom:8px">種目をタップすると名前・単位・±の増減量・クイックボタンを編集できます</div>
     <div id="exList">${EXERCISES.map((ex,i)=>exEditRow(ex,i)).join('')}</div>
     <h2 class="sec">新しい種目を追加</h2>
     <div class="field"><label>種目名</label><input id="exNewName" placeholder="例: プランク"></div>
     <div class="field"><label>記録タイプ</label>
       <div class="seg"><button id="exTypeCount" class="on" onclick="pickExType('count')">回数で記録</button>
         <button id="exTypeCheck" onclick="pickExType('check')">やった/やってない</button></div></div>
-    <div class="field" id="exUnitWrap"><label>単位</label><input id="exNewUnit" value="回" placeholder="回 / 秒 / 分"></div>
+    <div class="two" id="exUnitWrap">
+      <div class="field"><label>単位</label><input id="exNewUnit" value="回" placeholder="回 / 秒 / 分"></div>
+      <div class="field"><label>±ボタンの増減量</label><input id="exNewStep" type="number" inputmode="numeric" value="1" min="1"></div>
+    </div>
     <button class="btn primary block" onclick="addExercise()">＋ 種目を追加</button>
     <button class="btn ghost block" style="margin-top:8px" onclick="closeSheet()">閉じる</button>`);
 }
 let _newExType='count';
-function pickExType(t){ _newExType=t; q('#exTypeCount').classList.toggle('on',t==='count'); q('#exTypeCheck').classList.toggle('on',t==='check'); q('#exUnitWrap').style.display=t==='count'?'block':'none'; }
+function pickExType(t){ _newExType=t; q('#exTypeCount').classList.toggle('on',t==='count'); q('#exTypeCheck').classList.toggle('on',t==='check'); q('#exUnitWrap').style.display=t==='count'?'grid':'none'; }
 function exEditRow(ex,i){
-  return `<div class="item"><div class="ico">${ex.icon||'🏋️'}</div>
-    <div class="meta"><div class="nm">${esc(ex.name)}</div><div class="sb">${ex.type==='check'?'チェック式':'回数式 ('+esc(ex.unit||'回')+')'}</div></div>
-    <button class="del" onclick="delExercise(${i})">🗑</button></div>`;
+  const sb = ex.type==='check' ? 'チェック式'
+    : `回数式 (${esc(ex.unit||'回')}・±${Math.max(1,num(ex.step)||1)})${ex.quick?' ・ +'+ex.quick.join('/+'):''}`;
+  return `<div class="item" onclick="openExerciseEdit(${i})" style="cursor:pointer"><div class="ico">${ex.icon||'🏋️'}</div>
+    <div class="meta"><div class="nm">${esc(ex.name)}</div><div class="sb">${sb}</div></div>
+    <button class="del" onclick="event.stopPropagation();delExercise(${i})">🗑</button></div>`;
 }
 function addExercise(){
   const name=q('#exNewName').value.trim(); if(!name){ toast('種目名を入力してください'); return; }
   const ex={ id:uuid(), name, type:_newExType, icon:'🏋️' };
-  if(_newExType==='count') ex.unit=q('#exNewUnit').value.trim()||'回';
+  if(_newExType==='count'){ ex.unit=q('#exNewUnit').value.trim()||'回'; ex.step=Math.max(1,Math.round(num(q('#exNewStep').value))||1); }
   EXERCISES.push(ex); uref('settings/exercises').set(EXERCISES).then(()=>{ toast('種目を追加'); openExerciseEditor(); });
+}
+// ---- 既存種目の編集 (名前/単位/±刻み/クイックボタン) ----
+function openExerciseEdit(i){
+  const ex=EXERCISES[i]; if(!ex) return;
+  sheet(`<h3>⚙️ 種目を編集</h3>
+    <div class="field"><label>種目名</label><input id="exEName" value="${esc(ex.name)}"></div>
+    ${ex.type==='count'?`
+    <div class="two">
+      <div class="field"><label>単位</label><input id="exEUnit" value="${esc(ex.unit||'回')}" placeholder="回 / 秒 / 分"></div>
+      <div class="field"><label>±ボタンの増減量</label><input id="exEStep" type="number" inputmode="numeric" value="${Math.max(1,num(ex.step)||1)}" min="1"></div>
+    </div>
+    <div class="field"><label>クイック追加ボタン (カンマ区切り・最大4つ)</label><input id="exEQuick" value="${(ex.quick||[]).join(',')}" placeholder="例: 1,10,20"></div>`:''}
+    <button class="btn primary block" onclick="saveExerciseEdit(${i})">保存</button>
+    <button class="btn ghost block" style="margin-top:8px" onclick="openExerciseEditor()">← 種目一覧に戻る</button>`);
+}
+function saveExerciseEdit(i){
+  const ex=EXERCISES[i]; if(!ex) return;
+  const name=q('#exEName').value.trim(); if(!name){ toast('種目名を入力してください'); return; }
+  ex.name=name;
+  if(ex.type==='count'){
+    ex.unit=q('#exEUnit').value.trim()||'回';
+    ex.step=Math.max(1,Math.round(num(q('#exEStep').value))||1);
+    const qs=q('#exEQuick').value.split(/[,、\s]+/).map(s=>Math.round(num(s))).filter(n=>n>0).slice(0,4);
+    if(qs.length) ex.quick=qs; else delete ex.quick;
+  }
+  uref('settings/exercises').set(EXERCISES).then(()=>{ toast('✏️ 保存しました'); openExerciseEditor(); render(); });
 }
 function delExercise(i){
   if(!confirm('「'+EXERCISES[i].name+'」を削除しますか?(過去の記録は残ります)')) return;
