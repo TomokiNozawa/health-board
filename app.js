@@ -143,6 +143,12 @@ async function doSignup(){
   catch(e){ err.textContent = (e.code||'').includes('email-already')
     ? 'このメールは登録済みです（ログインしてください）' : ('エラー: '+(e.code||e.message)); }
 }
+async function doReset(){
+  const em=q('#loginEmail').value.trim(), err=q('#loginErr'); err.textContent='';
+  if(!em){ err.textContent='メールアドレスを入力してから押してください'; return; }
+  try{ await auth.sendPasswordResetEmail(em); toast('📮 再設定メールを送信しました'); }
+  catch(e){ err.textContent='送信エラー: '+(e.code||e.message); }
+}
 
 /* ===================== Fasting calc ===================== */
 // 最後の食事時刻からの経過(絶食)時間を計算。表示日が今日なら現在時刻基準。
@@ -184,11 +190,9 @@ async function renderHome(){
   const el=q('#viewHome'); const t=mealTotals();
   const last = await getLastMealTime();
   const ref = curDate===todayStr() ? new Date() : new Date(curDate+'T23:59:59');
-  let fastH=0, fasting=true, eatLabel='';
+  let fastH=0;
   if(last){
-    fastH = (ref - last)/3600000;
-    fasting = fastH < 24 ? true : true;
-    eatLabel = '最後の食事 '+ String(last.getHours()).padStart(2,'0')+':'+String(last.getMinutes()).padStart(2,'0');
+    fastH = Math.max(0, (ref - last)/3600000);  // 未来時刻の食事登録直後に負値表示になるのを防ぐ
   }
   const pct = Math.max(0, Math.min(1, fastH/GOALS.fastHours));
   const done = fastH>=GOALS.fastHours;
@@ -419,13 +423,22 @@ async function renderStats(){
     return { date:d, kcal:Math.round(kcal), protein:Math.round(p), steps:v.steps||0,
       weight:(v.body&&v.body.weight)||null, fast };
   });
-  // fasting streak (全日から)
+  // fasting streak: 昨日から日付連続で遡る。
+  // 今日は未確定日として扱う (達成済みなら加算、食事なし=歩数自動連携だけのノードでも streak を切らない)
   let streak=0; const allDays=await uref('days').once('value').then(s=>s.val()||{});
-  for(const ds of Object.keys(allDays).sort().reverse()){
-    const meals=allDays[ds].meals||{}; const ats=Object.values(meals).map(m=>m.at).filter(Boolean).sort();
-    if(ats.length<1) break;
+  const fastOk=ds=>{
+    const meals=(allDays[ds]&&allDays[ds].meals)||{};
+    const ats=Object.values(meals).map(m=>m.at).filter(Boolean).sort();
+    if(!ats.length) return null;  // 食事記録なし
     const span = ats.length>=2 ? hhDiff(ats[0],ats[ats.length-1]) : 0;
-    if(span <= (24-GOALS.fastHours)+0.5) streak++; else break;
+    return span <= (24-GOALS.fastHours)+0.5;
+  };
+  const todayOk=fastOk(todayStr());
+  if(todayOk!==false){
+    if(todayOk===true) streak++;
+    for(let ds=shiftDate(todayStr(),-1), i=0; i<3660; ds=shiftDate(ds,-1), i++){
+      if(fastOk(ds)===true) streak++; else break;
+    }
   }
   // サマリ集計
   const recK=data.filter(d=>d.kcal>0), recS=data.filter(d=>d.steps>0);
@@ -516,6 +529,18 @@ function sheet(html){
   q('#modalRoot').innerHTML=`<div class="scrim" onclick="if(event.target===this)closeSheet()">
     <div class="sheet"><div class="grip"></div>${html}</div></div>`;
 }
+// シート表示中は背景(body)スクロールをロック。#modalRoot の増減を MutationObserver で自動追跡
+let _lockY=0;
+function _syncBodyLock(){
+  const open=!!q('#modalRoot').firstChild, b=document.body;
+  if(open && b.style.position!=='fixed'){
+    _lockY=window.scrollY||0;
+    b.style.position='fixed'; b.style.top=(-_lockY)+'px'; b.style.left='0'; b.style.right='0'; b.style.width='100%';
+  } else if(!open && b.style.position==='fixed'){
+    b.style.position=''; b.style.top=''; b.style.left=''; b.style.right=''; b.style.width='';
+    window.scrollTo(0,_lockY);
+  }
+}
 
 function foodMasterList(){
   // ピン留め(pin)を最優先 → 使用回数 → 新しい順
@@ -584,7 +609,8 @@ function clearMealInputs(){ ['mName','mKcal','mP','mF','mC'].forEach(id=>{const 
 function addToCart(){
   const it=curMealItem();
   if(!it.name && !it.kcal){ toast('料理名かカロリーを入力してください'); return; }
-  it.name=it.name||'食事'; _mealCart.push(it); clearMealInputs(); renderCart();
+  it.name=it.name||'食事'; if(_lastPhotoData) it.photo=true;
+  _mealCart.push(it); clearMealInputs(); renderCart();
   toast('「'+it.name+'」を追加');
 }
 function renderCart(){
@@ -662,11 +688,12 @@ function saveMeal(){
   const items=[..._mealCart];
   // 入力欄に残っている品も対象に
   const cur=curMealItem();
-  if(cur.name || cur.kcal){ cur.name=cur.name||'食事'; items.push(cur); }
+  if(cur.name || cur.kcal){ cur.name=cur.name||'食事'; if(_lastPhotoData) cur.photo=true; items.push(cur); }
   if(!items.length){ toast('品目がありません'); return; }
   const updates={};
   items.forEach(it=>{
     const m={ name:it.name, at, type:_mealType, kcal:num(it.kcal), p:num(it.p), f:num(it.f), c:num(it.c), ts:Date.now() };
+    if(it.photo) m.photo=true;
     updates['days/'+curDate+'/meals/'+uuid()]=m;
     upsertFoodMaster(m);
   });
@@ -918,7 +945,10 @@ function bindEvents(){
   q('#acctBtn').onclick=openAcct;
   q('#prevDay').onclick=()=>{ curDate=shiftDate(curDate,-1); watchDay(); };
   q('#nextDay').onclick=()=>{ if(curDate<todayStr()){ curDate=shiftDate(curDate,1); watchDay(); } };
+  q('#curDate').onclick=()=>{ if(curDate!==todayStr()){ curDate=todayStr(); watchDay(); toast('今日に戻りました'); } };
+  q('#resetBtn').onclick=doReset;
   document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeSheet(); });
+  new MutationObserver(_syncBodyLock).observe(q('#modalRoot'),{childList:true});
 }
 
 window.addEventListener('DOMContentLoaded',()=>{ bindEvents(); initFirebase(); });
