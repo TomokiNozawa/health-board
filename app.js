@@ -286,8 +286,16 @@ async function renderHome(){
       <div class="tiny muted" style="margin-top:4px">※消費はApple Watchのアクティブカロリー(基礎代謝は含みません)</div>
     </div>` : ''}
 
-    <h2 class="sec">💊 サプリ</h2>
+    <h2 class="sec">今日のPFCバランス</h2>
     <div class="card">
+      ${pfcRow('P たんぱく質', t.p, GOALS.protein, 'var(--rose)', 'over-good')}
+      ${pfcRow('F 脂質', t.f, GOALS.fat, 'var(--amber)', 'over-bad')}
+      ${pfcRow('C 炭水化物', t.c, GOALS.carb, 'var(--blue)', 'neutral')}
+    </div>
+
+    <h2 class="sec">クイック記録</h2>
+    <div class="card">
+      <div style="border-bottom:1px solid var(--line);margin-bottom:12px">
       ${SUPPLEMENTS.map(sp=>{
         const on=!!(DAY.supplements&&DAY.supplements[sp.id]);
         // 今日の20時以降で未摂取ならアンバー強調 (飲み忘れの受動リマインド)
@@ -300,17 +308,7 @@ async function renderHome(){
           <div class="chip ${on?'on':(warn?'warn':'')}">${on?'✓ 摂取済':(warn?'⚠ 未':'未')}</div>
         </div>`;
       }).join('')}
-    </div>
-
-    <h2 class="sec">今日のPFCバランス</h2>
-    <div class="card">
-      ${pfcRow('P たんぱく質', t.p, GOALS.protein, 'var(--rose)', 'over-good')}
-      ${pfcRow('F 脂質', t.f, GOALS.fat, 'var(--amber)', 'over-bad')}
-      ${pfcRow('C 炭水化物', t.c, GOALS.carb, 'var(--blue)', 'neutral')}
-    </div>
-
-    <h2 class="sec">クイック記録</h2>
-    <div class="card">
+      </div>
       <div class="btn-row" style="margin-bottom:10px">
         <button class="btn primary grow" onclick="openMealSheet()">🍽 食事</button>
         <button class="btn amber grow" onclick="setTab('Workout')">💪 運動</button>
