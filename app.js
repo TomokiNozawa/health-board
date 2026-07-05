@@ -37,8 +37,8 @@ const DEFAULT_EXERCISES = [
 
 // ---- サプリ (ホームのチェックで日別記録 days/{date}/supplements/{id}=true) ----
 const SUPPLEMENTS = [
-  { id:'multi', name:'マルチビタミン&ミネラル', icon:'🌈', hint:'昼食後がおすすめ' },
-  { id:'zinc',  name:'亜鉛・マカ・B1・B6',      icon:'⚡', hint:'夕食後がおすすめ' },
+  { id:'multi', name:'マルチビタミン', icon:'🌈', hint:'1日3粒・昼食後がおすすめ' },
+  { id:'zinc',  name:'亜鉛・マカ',     icon:'⚡', hint:'1日2粒・夕食後がおすすめ' },
 ];
 
 // 食事写真AI推定 Worker (Phase 2-B)。デプロイ後にURL確定。
