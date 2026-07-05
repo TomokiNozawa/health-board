@@ -36,9 +36,10 @@ const DEFAULT_EXERCISES = [
 ];
 
 // ---- サプリ (ホームのチェックで日別記録 days/{date}/supplements/{id}=true) ----
+// kcal/PFC はメーカー公表の栄養成分表示 (1日目安量あたり)。チェックONで食事欄に自動追加される
 const SUPPLEMENTS = [
-  { id:'multi', name:'マルチビタミン', icon:'🌈', hint:'1日3粒・昼食後がおすすめ' },
-  { id:'zinc',  name:'亜鉛・マカ',     icon:'⚡', hint:'1日2粒・夕食後がおすすめ' },
+  { id:'multi', name:'マルチビタミン', icon:'🌈', hint:'1日3粒・昼食後がおすすめ', dose:'3粒', mealType:'lunch',  kcal:2.7, p:0.2, f:0, c:0.4 },
+  { id:'zinc',  name:'亜鉛・マカ',     icon:'⚡', hint:'1日2粒・夕食後がおすすめ', dose:'2粒', mealType:'dinner', kcal:1.5, p:0,   f:0, c:0.3 },
 ];
 
 // 食事写真AI推定 Worker (Phase 2-B)。デプロイ後にURL確定。
@@ -659,15 +660,25 @@ function lineChart(points, goalLine, unit){
 }
 
 /* ===================== WRITES ===================== */
-function delMeal(k){ if(confirm('この食事を削除しますか?')) uref('days/'+curDate+'/meals/'+k).remove().then(()=>toast('削除しました')); }
+function delMeal(k){ if(confirm('この食事を削除しますか?')){
+  const upd={}; upd['meals/'+k]=null;
+  if(k.indexOf('supp_')===0) upd['supplements/'+k.slice(5)]=null;  // サプリ項目はチェックも連動解除
+  uref('days/'+curDate).update(upd).then(()=>toast('削除しました')); } }
 function addWater(ml){ const v=(DAY.water||0)+ml; uref('days/'+curDate+'/water').set(v).then(()=>toast('💧 +'+ml+'ml')); }
 function setMood(i){ uref('days/'+curDate+'/mood').set(i); }
 function toggleCheck(id){ const cur=DAY.workout.exercises[id]; const nv=!(cur&&cur.done);
   DAY.workout.exercises[id]={done:nv}; render();  // 楽観更新: 書込を待たず即時反映
   uref('days/'+curDate+'/workout/exercises/'+id).set({done:nv}).then(()=>nv&&toast('✅ 完了!')); }
 function toggleSupp(id){ const nv=!(DAY.supplements&&DAY.supplements[id]);
-  DAY.supplements=DAY.supplements||{}; DAY.supplements[id]=nv; render();  // 楽観更新
-  uref('days/'+curDate+'/supplements/'+id).set(nv||null).then(()=>{ if(nv) toast('💊 記録しました'); }); }
+  const sp=SUPPLEMENTS.find(s=>s.id===id);
+  // 食事欄にもサプリ項目を連動追加/削除 (固定キー supp_{id}、at無し=ファスティング計算に影響しない)
+  const meal = sp? { name:'💊 '+sp.name+' ('+sp.dose+')', kcal:sp.kcal, p:sp.p, f:sp.f, c:sp.c, type:sp.mealType, ts:Date.now() } : null;
+  DAY.supplements=DAY.supplements||{}; DAY.supplements[id]=nv;             // 楽観更新
+  if(meal){ if(nv) DAY.meals['supp_'+id]=meal; else delete DAY.meals['supp_'+id]; }
+  render();
+  const upd={}; upd['supplements/'+id]=nv||null;
+  if(meal) upd['meals/supp_'+id]= nv? meal : null;
+  uref('days/'+curDate).update(upd).then(()=>{ if(nv) toast('💊 記録しました'); }); }
 function bumpCount(id,delta){
   const cur=DAY.workout.exercises[id]; const n=Math.max(0,(cur?num(cur.count):0)+delta);
   DAY.workout.exercises[id]={count:n};                        // 楽観更新
@@ -886,7 +897,7 @@ function saveMealEdit(k){
 async function copyPrevDayMeals(){
   const prev=shiftDate(curDate,-1);
   const snap=(await uref('days/'+prev+'/meals').once('value')).val()||{};
-  const ks=Object.keys(snap);
+  const ks=Object.keys(snap).filter(k=>k.indexOf('supp_')!==0);  // サプリ項目はコピー対象外 (チェックと連動するため)
   if(!ks.length){ toast('前日('+fmtDateLabel(prev)+')の食事記録がありません'); return; }
   if(!confirm(fmtDateLabel(prev)+'の食事 '+ks.length+'品を今日にコピーしますか?')) return;
   const updates={};
