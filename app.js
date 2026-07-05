@@ -35,6 +35,12 @@ const DEFAULT_EXERCISES = [
   { id:'situp',    name:'腹筋',        type:'count', unit:'回', icon:'🔥', step:5, quick:[25,50,75] },
 ];
 
+// ---- サプリ (ホームのチェックで日別記録 days/{date}/supplements/{id}=true) ----
+const SUPPLEMENTS = [
+  { id:'multi', name:'マルチビタミン&ミネラル', icon:'🌈', hint:'昼食後がおすすめ' },
+  { id:'zinc',  name:'亜鉛・マカ・B1・B6',      icon:'⚡', hint:'夕食後がおすすめ' },
+];
+
 // 食事写真AI推定 Worker (Phase 2-B)。デプロイ後にURL確定。
 const AI_WORKER_URL = "https://healthboard-ai.tomoki-nozawa.workers.dev";
 
@@ -57,7 +63,7 @@ function fmtDateLabel(str){
   const w=['日','月','火','水','木','金','土'][dt.getDay()];
   return `${m}/${d}(${w})`;
 }
-function blankDay(){ return { meals:{}, workout:{exercises:{},note:''}, body:{}, steps:null, sleep:null, water:0, mood:null, active:null }; }
+function blankDay(){ return { meals:{}, workout:{exercises:{},note:''}, body:{}, supplements:{}, steps:null, sleep:null, water:0, mood:null, active:null }; }
 function num(v){ const n=parseFloat(v); return isNaN(n)?0:n; }
 function d1(v){ return (Math.round(num(v)*10)/10).toFixed(1); }  // 小数第1位固定 (PFC表示用)
 function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
@@ -245,6 +251,20 @@ async function renderHome(){
       <div class="tiny muted" style="margin-top:4px">※消費はApple Watchのアクティブカロリー(基礎代謝は含みません)</div>
     </div>` : ''}
 
+    <h2 class="sec">💊 サプリ</h2>
+    <div class="card">
+      ${SUPPLEMENTS.map(sp=>{
+        const on=!!(DAY.supplements&&DAY.supplements[sp.id]);
+        return `<div class="item" role="button" tabindex="0" style="cursor:pointer"
+          onclick="toggleSupp('${sp.id}')"
+          onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleSupp('${sp.id}')}">
+          <div class="ico">${sp.icon}</div>
+          <div class="meta"><div class="nm">${esc(sp.name)}</div><div class="sb">${esc(sp.hint)}</div></div>
+          <div class="chip ${on?'on':''}">${on?'✓ 摂取済':'未'}</div>
+        </div>`;
+      }).join('')}
+    </div>
+
     <h2 class="sec">今日のPFCバランス</h2>
     <div class="card">
       ${pfcRow('P たんぱく質', t.p, GOALS.protein, 'var(--rose)')}
@@ -427,7 +447,8 @@ async function renderStats(){
     const ats=Object.values(meals).map(m=>m.at).filter(Boolean).sort();
     const fast = ats.length? (ats.length>=2? hhDiff(ats[0],ats[ats.length-1])<=(24-GOALS.fastHours)+0.5 : true) : null;
     return { date:d, kcal:Math.round(kcal), protein:Math.round(p), steps:v.steps||0,
-      weight:(v.body&&v.body.weight)||null, fast };
+      weight:(v.body&&v.body.weight)||null, fast,
+      supp: v.supplements ? Object.values(v.supplements).filter(Boolean).length : 0 };
   });
   // fasting streak: 昨日から日付連続で遡る。
   // 今日は未確定日として扱う (達成済みなら加算、食事なし=歩数自動連携だけのノードでも streak を切らない)
@@ -480,6 +501,7 @@ async function renderStats(){
       <div class="row between" style="padding:6px 0;border-top:1px solid var(--line)"><span class="muted tiny">🔥 平均カロリー</span><b class="mono">${avgK} kcal</b></div>
       <div class="row between" style="padding:6px 0;border-top:1px solid var(--line)"><span class="muted tiny">🥩 平均たんぱく質</span><b class="mono">${avgP} g</b></div>
       <div class="row between" style="padding:6px 0;border-top:1px solid var(--line)"><span class="muted tiny">👣 平均歩数</span><b class="mono">${avgS.toLocaleString()} 歩</b></div>
+      <div class="row between" style="padding:6px 0;border-top:1px solid var(--line)"><span class="muted tiny">💊 サプリ摂取日数 (2種とも)</span><b class="mono">${data.filter(d=>d.supp>=SUPPLEMENTS.length).length} / ${N} 日${(()=>{const one=data.filter(d=>d.supp>0&&d.supp<SUPPLEMENTS.length).length;return one?` <span class="muted" style="font-weight:400">(1種のみ ${one}日)</span>`:'';})()}</b></div>
     </div>
     ${predHtml}
     <h2 class="sec">体重推移 ${GOALS.targetWeight>0?`<span class="muted" style="font-weight:400">(目標 ${GOALS.targetWeight}kg)</span>`:''}</h2>
@@ -526,6 +548,9 @@ function setMood(i){ uref('days/'+curDate+'/mood').set(i); }
 function toggleCheck(id){ const cur=DAY.workout.exercises[id]; const nv=!(cur&&cur.done);
   DAY.workout.exercises[id]={done:nv}; render();  // 楽観更新: 書込を待たず即時反映
   uref('days/'+curDate+'/workout/exercises/'+id).set({done:nv}).then(()=>nv&&toast('✅ 完了!')); }
+function toggleSupp(id){ const nv=!(DAY.supplements&&DAY.supplements[id]);
+  DAY.supplements=DAY.supplements||{}; DAY.supplements[id]=nv; render();  // 楽観更新
+  uref('days/'+curDate+'/supplements/'+id).set(nv||null).then(()=>{ if(nv) toast('💊 記録しました'); }); }
 function bumpCount(id,delta){
   const cur=DAY.workout.exercises[id]; const n=Math.max(0,(cur?num(cur.count):0)+delta);
   DAY.workout.exercises[id]={count:n};                        // 楽観更新
