@@ -476,7 +476,11 @@ function bodyTile(ic,lab,val,unit,fn){
 
 /* ---------- Stats view ---------- */
 let _statsRange=7;  // 7 or 30
+let _calMode='fast';       // 達成カレンダーの表示レイヤー: fast | supp
+let _bodyMetric='weight';  // からだ推移の表示指標: weight | fat | muscle
 function setStatsRange(n){ _statsRange=n; renderStats(); }
+function setCalMode(m){ _calMode=m; renderStats(); }
+function setBodyMetric(m){ _bodyMetric=m; renderStats(); }
 async function renderStats(){
   const el=q('#viewStats'); const N=_statsRange;
   el.innerHTML=`<div class="empty">${N}日間のデータを集計中…</div>`;
@@ -518,6 +522,29 @@ async function renderStats(){
   const maxK=Math.max(GOALS.calorie,...data.map(d=>d.kcal),1);
   const maxS=Math.max(GOALS.steps,...data.map(d=>d.steps),1);
   const weights=data.filter(d=>d.weight!=null);
+  const suppBoth=data.filter(d=>d.supp>=SUPPLEMENTS.length).length;
+  const suppOne=data.filter(d=>d.supp>0&&d.supp<SUPPLEMENTS.length).length;
+  // 前期間 (直前N日) の平均: allDays から算出して比較矢印に使う
+  let pk=0,pkn=0,ppr=0,pst=0,psn=0;
+  for(let i=2*N-1;i>=N;i--){
+    const v=allDays[shiftDate(todayStr(),-i)]||{};
+    let k=0,pr=0,n=0; for(const key in (v.meals||{})){ k+=num(v.meals[key].kcal); pr+=num(v.meals[key].p); n++; }
+    if(n){ pk+=k; ppr+=pr; pkn++; }
+    if(v.steps>0){ pst+=v.steps; psn++; }
+  }
+  const prevK=pkn?Math.round(pk/pkn):null, prevP=pkn?Math.round(ppr/pkn):null, prevS=psn?Math.round(pst/psn):null;
+  const cmpLbl = N===7?'先週比':'前期間比';
+  // 比較矢印: goodDown=true なら減少が良い(緑)。差1未満は表示しない
+  const cmp=(cur,prev,goodDown)=>{
+    if(prev==null||!cur) return '';
+    const d=Math.round(cur-prev); if(Math.abs(d)<1) return '';
+    const good = goodDown ? d<0 : d>0;
+    return ` <span class="tiny" style="font-weight:700;color:${good?'var(--green)':'var(--rose)'}">${d>0?'▲':'▼'}${Math.abs(d).toLocaleString()}</span>`;
+  };
+  // 達成率バー付きサマリ行
+  const statRow=(lab,valHtml,pct,color)=>`<div style="padding:7px 0">
+    <div class="row between" style="margin-bottom:5px"><span class="muted tiny">${lab}</span><span class="mono tiny" style="font-weight:700">${valHtml}</span></div>
+    <div class="bar"><i style="width:${Math.max(0,Math.min(100,pct))}%;background:${color}"></i></div></div>`;
   // 体重予測(G): 直近の傾きから目標体重到達まで
   let predHtml='';
   if(GOALS.targetWeight>0 && weights.length>=2){
@@ -536,32 +563,74 @@ async function renderStats(){
       <button class="${N===7?'on':''}" onclick="setStatsRange(7)">7日</button>
       <button class="${N===30?'on':''}" onclick="setStatsRange(30)">30日</button>
     </div>
-    <h2 class="sec">${N}日サマリー</h2>
+    <h2 class="sec">${N}日サマリー <span class="muted" style="font-weight:400;text-transform:none">(矢印は${cmpLbl})</span></h2>
     <div class="card">
-      <div class="row between" style="padding:6px 0"><span class="muted tiny">🔥 ファスティング連続達成</span><b class="streak">${streak} 日</b></div>
-      <div class="row between" style="padding:6px 0;border-top:1px solid var(--line)"><span class="muted tiny">⏱ ${N}日の達成日数</span><b class="mono">${fastDays} / ${fastRec} 日</b></div>
-      <div class="row between" style="padding:6px 0;border-top:1px solid var(--line)"><span class="muted tiny">🔥 平均カロリー</span><b class="mono">${avgK} kcal</b></div>
-      <div class="row between" style="padding:6px 0;border-top:1px solid var(--line)"><span class="muted tiny">🥩 平均たんぱく質</span><b class="mono">${avgP} g</b></div>
-      <div class="row between" style="padding:6px 0;border-top:1px solid var(--line)"><span class="muted tiny">👣 平均歩数</span><b class="mono">${avgS.toLocaleString()} 歩</b></div>
-      <div class="row between" style="padding:6px 0;border-top:1px solid var(--line)"><span class="muted tiny">💊 サプリ摂取日数 (2種とも)</span><b class="mono">${data.filter(d=>d.supp>=SUPPLEMENTS.length).length} / ${N} 日${(()=>{const one=data.filter(d=>d.supp>0&&d.supp<SUPPLEMENTS.length).length;return one?` <span class="muted" style="font-weight:400">(1種のみ ${one}日)</span>`:'';})()}</b></div>
+      <div class="row between" style="padding:2px 0 9px"><span class="muted tiny">🔥 ファスティング連続達成</span><b class="streak">${streak} 日</b></div>
+      ${statRow('⏱ ファスティング達成', `${fastDays} / ${fastRec} 日`,
+        fastRec?fastDays/fastRec*100:0, (fastRec&&fastDays/fastRec>=0.8)?'var(--green)':'var(--amber)')}
+      ${statRow('🔥 平均カロリー', `${avgK} / ${GOALS.calorie} kcal${cmp(avgK,prevK,true)}`,
+        avgK/GOALS.calorie*100, avgK<=GOALS.calorie?'var(--green)':'var(--rose)')}
+      ${statRow('🥩 平均たんぱく質', `${avgP} / ${GOALS.protein} g${cmp(avgP,prevP,false)}`,
+        avgP/GOALS.protein*100, avgP>=GOALS.protein?'var(--green)':(avgP>=GOALS.protein*0.8?'var(--amber)':'var(--rose)'))}
+      ${statRow('👣 平均歩数', `${avgS.toLocaleString()} / ${GOALS.steps.toLocaleString()} 歩${cmp(avgS,prevS,false)}`,
+        avgS/GOALS.steps*100, avgS>=GOALS.steps?'var(--green)':(avgS>=GOALS.steps*0.8?'var(--amber)':'var(--rose)'))}
+      ${statRow('💊 サプリ (2種とも)', `${suppBoth} / ${N} 日${suppOne?` <span class="muted" style="font-weight:400">(1種のみ ${suppOne}日)</span>`:''}`,
+        suppBoth/N*100, suppBoth/N>=0.8?'var(--green)':'var(--amber)')}
     </div>
-    ${predHtml}
-    <h2 class="sec">体重推移 ${GOALS.targetWeight>0?`<span class="muted" style="font-weight:400">(目標 ${GOALS.targetWeight}kg)</span>`:''}</h2>
-    <div class="card">${lineChart(weights.map(d=>({x:d.date,y:num(d.weight)})), GOALS.targetWeight>0?GOALS.targetWeight:null, 'kg')}</div>
-    ${(()=>{ const fats=data.filter(d=>d.fat!=null);
-      return fats.length ? `<h2 class="sec">体脂肪率推移</h2>
-      <div class="card">${lineChart(fats.map(d=>({x:d.date,y:num(d.fat)})), null, '%')}</div>` : ''; })()}
-    ${(()=>{ const mus=data.filter(d=>d.muscle!=null);
-      return mus.length ? `<h2 class="sec">筋肉量推移</h2>
-      <div class="card">${lineChart(mus.map(d=>({x:d.date,y:num(d.muscle)})), null, 'kg')}</div>` : ''; })()}
+    <h2 class="sec">達成カレンダー</h2>
+    <div class="card">
+      <div class="seg" style="margin-bottom:10px">
+        <button class="${_calMode==='fast'?'on':''}" onclick="setCalMode('fast')">⏱ ファスティング</button>
+        <button class="${_calMode==='supp'?'on':''}" onclick="setCalMode('supp')">💊 サプリ</button>
+      </div>
+      <div class="fcal">
+        ${['月','火','水','木','金','土','日'].map(w=>`<div class="c h">${w}</div>`).join('')}
+        ${'<div class="c" style="background:transparent"></div>'.repeat((new Date(data[0].date+'T12:00:00').getDay()+6)%7)}
+        ${data.map(d=>{
+          let cls='';
+          if(_calMode==='fast'){ cls = d.fast===true?'ok':(d.fast===false?'ng':''); }
+          else { cls = d.supp>=SUPPLEMENTS.length?'ok':(d.supp>0?'half':''); }
+          return `<div class="c ${cls}">${+d.date.slice(8)}</div>`; }).join('')}
+      </div>
+      <div class="legend">${_calMode==='fast'
+        ? `<span><i style="background:rgba(52,211,153,.6)"></i>${GOALS.fastHours}h達成</span><span><i style="background:rgba(251,113,133,.45)"></i>未達</span><span><i style="background:var(--bg2)"></i>記録なし</span>`
+        : `<span><i style="background:rgba(52,211,153,.6)"></i>2種とも</span><span><i style="background:rgba(245,158,11,.55)"></i>1種のみ</span><span><i style="background:var(--bg2)"></i>なし</span>`}</div>
+    </div>
+    <h2 class="sec">からだ推移</h2>
+    <div class="card">
+      <div class="seg" style="margin-bottom:10px">
+        <button class="${_bodyMetric==='weight'?'on':''}" onclick="setBodyMetric('weight')">体重</button>
+        <button class="${_bodyMetric==='fat'?'on':''}" onclick="setBodyMetric('fat')">体脂肪率</button>
+        <button class="${_bodyMetric==='muscle'?'on':''}" onclick="setBodyMetric('muscle')">筋肉量</button>
+      </div>
+      ${(()=>{
+        const defs={ weight:{lab:'体重',unit:'kg',goodDown:true,goal:GOALS.targetWeight>0?GOALS.targetWeight:null},
+                     fat:{lab:'体脂肪率',unit:'%',goodDown:true,goal:null},
+                     muscle:{lab:'筋肉量',unit:'kg',goodDown:false,goal:null} };
+        const md=defs[_bodyMetric];
+        const pts=data.filter(d=>d[_bodyMetric]!=null).map(d=>({x:d.date,y:num(d[_bodyMetric])}));
+        const latest=pts.length?pts[pts.length-1].y:null;
+        const diff=pts.length>=2? +(pts[pts.length-1].y-pts[0].y).toFixed(1) : null;
+        return `<div class="row between" style="margin-bottom:4px">
+          <div><span class="tiny muted">${md.lab} 最新${md.goal?` (目標 ${md.goal}${md.unit})`:''}</span>
+            <div class="big mono">${latest!=null?d1(latest):'—'}<small style="font-size:14px;color:var(--sub)"> ${md.unit}</small></div></div>
+          ${diff!=null&&diff!==0?`<span style="font-weight:800;font-size:15px;color:${(md.goodDown?diff<0:diff>0)?'var(--green)':'var(--rose)'}">${diff>0?'▲':'▼'}${Math.abs(diff)}${md.unit}<span class="tiny muted" style="font-weight:400"> / ${N}日</span></span>`:''}
+        </div>${lineChart(pts, md.goal, md.unit)}`;
+      })()}
+    </div>
+    ${_bodyMetric==='weight'?predHtml:''}
     <h2 class="sec">カロリー (${N}日)</h2>
     <div class="card"><div class="chartbox">
-      ${data.map(d=>{const h=(d.kcal/maxK)*100;return `<div class="col"><div class="vlab">${N<=7&&d.kcal?d.kcal.toLocaleString():''}</div><div class="bb amber" style="height:${h}%"></div><div class="lab">${d.date.slice(8)}</div></div>`}).join('')}
-    </div><div class="legend"><span><i style="background:var(--amber)"></i>kcal/日 ・ 目標 ${GOALS.calorie}</span></div></div>
+      <i class="goal-line" style="bottom:${Math.round(16+(GOALS.calorie/maxK)*100)}px"></i>
+      ${data.map(d=>{const h=Math.max(3,Math.round((d.kcal/maxK)*100));const over=d.kcal>GOALS.calorie;
+        return `<div class="col"><div class="vlab">${N<=7&&d.kcal?d.kcal.toLocaleString():''}</div><div class="bb" style="height:${h}px;background:${d.kcal?(over?'linear-gradient(180deg,#fb7185,#e11d48)':'linear-gradient(180deg,#34d399,#059669)'):'var(--bg2)'}"></div><div class="lab">${d.date.slice(8)}</div></div>`}).join('')}
+    </div><div class="legend"><span><i style="background:var(--green)"></i>目標内</span><span><i style="background:var(--rose)"></i>超過</span><span style="color:var(--amber)">- - 目標 ${GOALS.calorie.toLocaleString()}kcal</span></div></div>
     <h2 class="sec">歩数 (${N}日)</h2>
     <div class="card"><div class="chartbox">
-      ${data.map(d=>{const h=(d.steps/maxS)*100;return `<div class="col"><div class="vlab">${N<=7&&d.steps?d.steps.toLocaleString():''}</div><div class="bb blue" style="height:${h}%"></div><div class="lab">${d.date.slice(8)}</div></div>`}).join('')}
-    </div><div class="legend"><span><i style="background:var(--blue)"></i>歩/日 ・ 目標 ${GOALS.steps}</span></div></div>
+      <i class="goal-line" style="bottom:${Math.round(16+(GOALS.steps/maxS)*100)}px"></i>
+      ${data.map(d=>{const h=Math.max(3,Math.round((d.steps/maxS)*100));const ok=d.steps>=GOALS.steps;
+        return `<div class="col"><div class="vlab">${N<=7&&d.steps?d.steps.toLocaleString():''}</div><div class="bb" style="height:${h}px;background:${d.steps?(ok?'linear-gradient(180deg,#34d399,#059669)':'linear-gradient(180deg,#60a5fa,#3b82f6)'):'var(--bg2)'}"></div><div class="lab">${d.date.slice(8)}</div></div>`}).join('')}
+    </div><div class="legend"><span><i style="background:var(--green)"></i>目標達成</span><span><i style="background:var(--blue)"></i>未達</span><span style="color:var(--amber)">- - 目標 ${GOALS.steps.toLocaleString()}歩</span></div></div>
     <div style="height:8px"></div>
     <button class="btn ghost block" onclick="openGoalSheet()">⚙️ 目標値を設定</button>`;
 }
