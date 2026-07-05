@@ -304,9 +304,9 @@ async function renderHome(){
 
     <h2 class="sec">今日のPFCバランス</h2>
     <div class="card">
-      ${pfcRow('P たんぱく質', t.p, GOALS.protein, 'var(--rose)')}
-      ${pfcRow('F 脂質', t.f, GOALS.fat, 'var(--amber)')}
-      ${pfcRow('C 炭水化物', t.c, GOALS.carb, 'var(--blue)')}
+      ${pfcRow('P たんぱく質', t.p, GOALS.protein, 'var(--rose)', 'over-good')}
+      ${pfcRow('F 脂質', t.f, GOALS.fat, 'var(--amber)', 'over-bad')}
+      ${pfcRow('C 炭水化物', t.c, GOALS.carb, 'var(--blue)', 'neutral')}
     </div>
 
     <h2 class="sec">クイック記録</h2>
@@ -335,15 +335,20 @@ function tile(lab,val,goal,unit,color){
     <div class="val mono">${disp}<small> ${unit}</small></div>
     <div class="bar"><i style="width:${pct}%;background:${color}"></i></div></div>`;
 }
-function pfcRow(lab,val,goal,color){
+// mode: 'over-bad'=超過を赤警告(脂質) / 'over-good'=目標到達を緑で称える(たんぱく質) / 'neutral'=超えても色を変えない(炭水化物)
+function pfcRow(lab,val,goal,color,mode){
+  mode = mode||'neutral';
   const pct = goal? Math.min(100,(num(val)/goal)*100):0;
-  const over = goal && num(val)>goal;
+  const bad  = mode==='over-bad'  && goal && num(val)>goal;
+  const good = mode==='over-good' && goal && num(val)>=goal;
+  const badge = bad ? ' <span style="color:var(--rose)">超過</span>'
+              : good ? ' <span style="color:var(--green)">✓ 達成</span>' : '';
   return `<div style="padding:7px 0">
     <div class="row between" style="margin-bottom:5px">
       <span class="muted tiny">${lab}</span>
-      <span class="mono tiny" style="font-weight:700;color:${color}">${d1(val)}<span class="muted" style="font-weight:600"> / ${goal||'—'} g</span> ${over?'<span style="color:var(--rose)">超過</span>':''}</span>
+      <span class="mono tiny" style="font-weight:700;color:${color}">${d1(val)}<span class="muted" style="font-weight:600"> / ${goal||'—'} g</span>${badge}</span>
     </div>
-    <div class="bar"><i style="width:${pct}%;background:${over?'var(--rose)':color}"></i></div>
+    <div class="bar"><i style="width:${pct}%;background:${bad?'var(--rose)':(good?'var(--green)':color)}"></i></div>
   </div>`;
 }
 
