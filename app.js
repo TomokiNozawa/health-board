@@ -346,7 +346,7 @@ function pfcRow(lab,val,goal,color,mode){
   return `<div style="padding:7px 0">
     <div class="row between" style="margin-bottom:5px">
       <span class="muted tiny">${lab}</span>
-      <span class="mono tiny" style="font-weight:700;color:${color}">${d1(val)}<span class="muted" style="font-weight:600"> / ${goal||'—'} g</span>${badge}</span>
+      <span class="mono tiny" style="font-weight:700;color:${good?'var(--green)':(bad?'var(--rose)':color)}">${d1(val)}<span class="muted" style="font-weight:600"> / ${goal||'—'} g</span>${badge}</span>
     </div>
     <div class="bar"><i style="width:${pct}%;background:${bad?'var(--rose)':(good?'var(--green)':color)}"></i></div>
   </div>`;
