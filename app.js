@@ -196,8 +196,41 @@ function mealTotals(){
   return {kcal,p,f,c,n};
 }
 
+/* ---------- 週次サマリー (月曜のみホーム最上部に先週分を表示) ---------- */
+let _weeklyCache = { key:null, html:'' };
+async function weeklySummaryHtml(){
+  if(new Date().getDay()!==1 || curDate!==todayStr()) return '';  // 月曜に今日を表示中のみ
+  const start = shiftDate(todayStr(),-7);  // 先週月曜
+  if(_weeklyCache.key===start) return _weeklyCache.html;
+  const days=[]; for(let i=0;i<7;i++) days.push(shiftDate(start,i));
+  const snaps = await Promise.all(days.map(d=>uref('days/'+d).once('value').then(s=>s.val()||{})));
+  let kcal=0,p=0,kn=0, st=0,sn=0, suppBoth=0; const ws=[];
+  snaps.forEach(v=>{
+    let k=0,pp=0,n=0; for(const key in (v.meals||{})){ k+=num(v.meals[key].kcal); pp+=num(v.meals[key].p); n++; }
+    if(n){ kcal+=k; p+=pp; kn++; }
+    if(v.steps>0){ st+=v.steps; sn++; }
+    if(v.body&&v.body.weight!=null) ws.push(v.body.weight);
+    const sc = v.supplements ? Object.values(v.supplements).filter(Boolean).length : 0;
+    if(sc>=SUPPLEMENTS.length) suppBoth++;
+  });
+  const lbl=d=>d.slice(5).replace('-','/');
+  const wDiff = ws.length>=2 ? ws[ws.length-1]-ws[0] : null;
+  const row=(l,v)=>`<div class="row between" style="padding:5px 0"><span class="muted tiny">${l}</span><b class="mono tiny">${v}</b></div>`;
+  const html = `<div class="card">
+    <div class="tiny muted" style="margin-bottom:4px">📅 先週のふりかえり (${lbl(start)}(月)〜${lbl(shiftDate(start,6))}(日))</div>
+    ${row('⚖️ 体重', ws.length? d1(ws[0])+' → '+d1(ws[ws.length-1])+' kg'+(wDiff!=null?` (${wDiff>0?'+':''}${d1(wDiff)})`:'') : '記録なし')}
+    ${row('🔥 平均カロリー', kn? Math.round(kcal/kn)+' kcal':'—')}
+    ${row('🥩 平均たんぱく質', kn? Math.round(p/kn)+' g':'—')}
+    ${row('👣 平均歩数', sn? Math.round(st/sn).toLocaleString()+' 歩':'—')}
+    ${row('💊 サプリ (2種とも)', suppBoth+' / 7 日')}
+  </div>`;
+  _weeklyCache = { key:start, html };
+  return html;
+}
+
 async function renderHome(){
   const el=q('#viewHome'); const t=mealTotals();
+  const weekly = await weeklySummaryHtml();
   const last = await getLastMealTime();
   const ref = curDate===todayStr() ? new Date() : new Date(curDate+'T23:59:59');
   let fastH=0;
@@ -213,6 +246,7 @@ async function renderHome(){
   const goalTime = last ? new Date(last.getTime()+GOALS.fastHours*3600000) : null;
 
   el.innerHTML = `
+    ${weekly}
     <div class="card">
       <div class="fast-wrap">
         <div class="ring">
@@ -255,12 +289,14 @@ async function renderHome(){
     <div class="card">
       ${SUPPLEMENTS.map(sp=>{
         const on=!!(DAY.supplements&&DAY.supplements[sp.id]);
+        // 今日の20時以降で未摂取ならアンバー強調 (飲み忘れの受動リマインド)
+        const warn=!on && curDate===todayStr() && new Date().getHours()>=20;
         return `<div class="item" role="button" tabindex="0" style="cursor:pointer"
           onclick="toggleSupp('${sp.id}')"
           onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleSupp('${sp.id}')}">
           <div class="ico">${sp.icon}</div>
           <div class="meta"><div class="nm">${esc(sp.name)}</div><div class="sb">${esc(sp.hint)}</div></div>
-          <div class="chip ${on?'on':''}">${on?'✓ 摂取済':'未'}</div>
+          <div class="chip ${on?'on':(warn?'warn':'')}">${on?'✓ 摂取済':(warn?'⚠ 未':'未')}</div>
         </div>`;
       }).join('')}
     </div>
@@ -410,8 +446,13 @@ function renderBody(){
     <div class="tiles">
       ${bodyTile('⚖️','体重', b.weight, 'kg','openBodySheet()')}
       ${bodyTile('📉','体脂肪率', b.fat, '%','openBodySheet()')}
+      ${bodyTile('💪','筋肉量', b.muscle, 'kg','openBodySheet()')}
       ${bodyTile('💧','水分', DAY.water||0, 'ml','openWaterSheet()')}
       ${bodyTile('😴','睡眠', DAY.sleep, 'h','openSleepSheet()')}
+    </div>
+    <div class="card">
+      <div class="tiny muted" style="margin-bottom:10px">体組成計アプリからコピーした表を貼り付けると、体重・体脂肪率・筋肉量を日付ごとに一括登録できます。</div>
+      <button class="btn block" onclick="openScaleImportSheet()">📥 体組成計データ取り込み</button>
     </div>
     <h2 class="sec">体調・気分</h2>
     <div class="card">
@@ -447,7 +488,8 @@ async function renderStats(){
     const ats=Object.values(meals).map(m=>m.at).filter(Boolean).sort();
     const fast = ats.length? (ats.length>=2? hhDiff(ats[0],ats[ats.length-1])<=(24-GOALS.fastHours)+0.5 : true) : null;
     return { date:d, kcal:Math.round(kcal), protein:Math.round(p), steps:v.steps||0,
-      weight:(v.body&&v.body.weight)||null, fast,
+      weight:(v.body&&v.body.weight)||null, fat:(v.body&&v.body.fat)||null,
+      muscle:(v.body&&v.body.muscle)||null, fast,
       supp: v.supplements ? Object.values(v.supplements).filter(Boolean).length : 0 };
   });
   // fasting streak: 昨日から日付連続で遡る。
@@ -506,6 +548,12 @@ async function renderStats(){
     ${predHtml}
     <h2 class="sec">体重推移 ${GOALS.targetWeight>0?`<span class="muted" style="font-weight:400">(目標 ${GOALS.targetWeight}kg)</span>`:''}</h2>
     <div class="card">${lineChart(weights.map(d=>({x:d.date,y:num(d.weight)})), GOALS.targetWeight>0?GOALS.targetWeight:null, 'kg')}</div>
+    ${(()=>{ const fats=data.filter(d=>d.fat!=null);
+      return fats.length ? `<h2 class="sec">体脂肪率推移</h2>
+      <div class="card">${lineChart(fats.map(d=>({x:d.date,y:num(d.fat)})), null, '%')}</div>` : ''; })()}
+    ${(()=>{ const mus=data.filter(d=>d.muscle!=null);
+      return mus.length ? `<h2 class="sec">筋肉量推移</h2>
+      <div class="card">${lineChart(mus.map(d=>({x:d.date,y:num(d.muscle)})), null, 'kg')}</div>` : ''; })()}
     <h2 class="sec">カロリー (${N}日)</h2>
     <div class="card"><div class="chartbox">
       ${data.map(d=>{const h=(d.kcal/maxK)*100;return `<div class="col"><div class="vlab">${N<=7&&d.kcal?d.kcal.toLocaleString():''}</div><div class="bb amber" style="height:${h}%"></div><div class="lab">${d.date.slice(8)}</div></div>`}).join('')}
@@ -796,13 +844,61 @@ function openBodySheet(){
       <div class="field"><label>体重 (kg)</label><input id="bW" type="number" inputmode="decimal" value="${b.weight||''}" placeholder="0.0"></div>
       <div class="field"><label>体脂肪率 (%)</label><input id="bF" type="number" inputmode="decimal" value="${b.fat||''}" placeholder="0.0"></div>
     </div>
+    <div class="field"><label>筋肉量 (kg・任意)</label><input id="bM" type="number" inputmode="decimal" value="${b.muscle||''}" placeholder="0.0"></div>
     <button class="btn primary block" onclick="saveBody()">保存</button>`);
   setTimeout(()=>q('#bW')&&q('#bW').focus(),200);
 }
 function saveBody(){
-  const upd={}; const w=q('#bW').value, f=q('#bF').value;
-  if(w!=='') upd.weight=num(w); if(f!=='') upd.fat=num(f);
+  const upd={}; const w=q('#bW').value, f=q('#bF').value, mus=q('#bM').value;
+  if(w!=='') upd.weight=num(w); if(f!=='') upd.fat=num(f); if(mus!=='') upd.muscle=num(mus);
   uref('days/'+curDate+'/body').update(upd).then(()=>{ closeSheet(); toast('⚖️ 記録しました'); });
+}
+
+/* ---------- 体組成計データ 貼り付けインポート ---------- */
+function openScaleImportSheet(){
+  sheet(`<h3>📥 体組成計データ取り込み</h3>
+    <div class="field"><label>体組成計アプリからコピーした表を貼り付け</label>
+      <textarea id="scaleData" placeholder="12:52 2026/07/05,65.10kg,22.3,14.2%,…&#10;(ヘッダ行が混ざっていてもOK)"
+        style="width:100%;min-height:150px;padding:12px;border-radius:12px;background:var(--bg2);border:1px solid var(--line);color:var(--ink)"></textarea></div>
+    <div class="tiny muted" style="margin-bottom:12px">体重・体脂肪率・筋肉量を日付ごとに登録します。同じ日に複数回の測定がある場合は最新時刻を採用。既存の記録と異なる値は体組成計の値で上書きします。</div>
+    <button class="btn primary block" onclick="importScaleData()">取り込む</button>`);
+  setTimeout(()=>q('#scaleData')&&q('#scaleData').focus(),200);
+}
+function parseScaleData(text){
+  const lines = text.split(/\r?\n/);
+  // ヘッダ行があれば列位置を特定 (無ければ既定: 体重1 / 体脂肪率3 / 筋肉量10 = オムロン形式)
+  const idx = { weight:1, fat:3, muscle:10 };
+  const header = lines.find(l=>l.includes('体重'));
+  if(header){ const h=header.split(','); const fi=n=>h.findIndex(c=>c.trim()===n);
+    if(fi('体重')>=0) idx.weight=fi('体重'); if(fi('体脂肪率')>=0) idx.fat=fi('体脂肪率'); if(fi('筋肉量')>=0) idx.muscle=fi('筋肉量'); }
+  const out={};  // date -> {weight,fat,muscle,time}
+  for(const raw of lines){
+    const cells = raw.trim().split(',');
+    const m = (cells[0]||'').match(/(\d{4})\/(\d{1,2})\/(\d{1,2})/);
+    if(!m) continue;  // ヘッダ・空行・日付なし行はスキップ
+    const date = m[1]+'-'+m[2].padStart(2,'0')+'-'+m[3].padStart(2,'0');
+    const time = ((cells[0]||'').match(/\d{1,2}:\d{2}/)||['00:00'])[0].padStart(5,'0');
+    const numAt = i=>{ const v=parseFloat(String(cells[i]||'').replace(/[^\d.\-]/g,'')); return isNaN(v)?null:v; };
+    const rec = { weight:numAt(idx.weight), fat:numAt(idx.fat), muscle:numAt(idx.muscle), time };
+    if(rec.weight==null && rec.fat==null && rec.muscle==null) continue;
+    if(!out[date] || time > out[date].time) out[date]=rec;
+  }
+  return out;
+}
+async function importScaleData(){
+  const recs = parseScaleData(q('#scaleData').value);
+  const dates = Object.keys(recs).sort();
+  if(!dates.length){ toast('⚠️ 取り込める行が見つかりませんでした'); return; }
+  const lbl = d=>d.slice(5).replace('-','/');
+  if(!confirm(dates.length+'日分 ('+lbl(dates[0])+'〜'+lbl(dates[dates.length-1])+') を登録します。既存と異なる値は体組成計の値で上書きします。よろしいですか?')) return;
+  const updates={};
+  for(const d of dates){ const r=recs[d];
+    if(r.weight!=null) updates['days/'+d+'/body/weight']=r.weight;
+    if(r.fat!=null)    updates['days/'+d+'/body/fat']=r.fat;
+    if(r.muscle!=null) updates['days/'+d+'/body/muscle']=r.muscle;
+  }
+  await uref('').update(updates);
+  closeSheet(); toast('📥 '+dates.length+'日分を取り込みました');
 }
 function openWaterSheet(){
   sheet(`<h3>💧 水分</h3>

@@ -118,6 +118,8 @@ h2.sec{font-size:13px; color:var(--sub); text-transform:uppercase; letter-spacin
 .chips{display:flex; flex-wrap:wrap; gap:8px}
 .chip{padding:9px 14px; border-radius:20px; background:var(--bg2); border:1px solid var(--line); font-size:14px; font-weight:600; min-height:40px; display:inline-flex; align-items:center; gap:6px}
 .chip.on{background:rgba(52,211,153,.18); border-color:var(--green); color:var(--green)}
+.chip.warn{background:rgba(245,158,11,.14); border-color:var(--amber); color:var(--amber); animation:chipPulse 2s ease-in-out infinite}
+@keyframes chipPulse{0%,100%{opacity:1}50%{opacity:.55}}
 
 /* counter */
 .counter{display:flex; align-items:center; gap:14px}
@@ -305,6 +307,6 @@ nav.tabbar button.on{color:var(--teal)}
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
-<script src="app.js?v=0.5.8"></script>
+<script src="app.js?v=0.5.9"></script>
 </body>
 </html>

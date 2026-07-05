@@ -1,6 +1,6 @@
 /* HealthBoard service worker — app shell cache */
-const CACHE = 'healthboard-v0.5.8';
-const ASSETS = ['./','./index.html','./app.js?v=0.5.8','./manifest.json','./icon-192.png','./icon-512.png','./apple-touch-icon.png','./favicon-32.png','./favicon.ico'];
+const CACHE = 'healthboard-v0.5.9';
+const ASSETS = ['./','./index.html','./app.js?v=0.5.9','./manifest.json','./icon-192.png','./icon-512.png','./apple-touch-icon.png','./favicon-32.png','./favicon.ico'];
 self.addEventListener('install', e=>{ self.skipWaiting(); e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS)).catch(()=>{})); });
 self.addEventListener('activate', e=>{ e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())); });
 self.addEventListener('fetch', e=>{
