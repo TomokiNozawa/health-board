@@ -180,6 +180,8 @@ nav.tabbar button.on{color:var(--teal)}
 
 /* mini bar chart */
 .chartbox{display:flex; align-items:flex-end; gap:6px; height:140px; padding-top:8px; position:relative}
+.chartbox.dense{gap:2px}  /* 30日表示: 細ギャップ+日付ラベル間引きで画面内に収める */
+.chartbox .col{min-width:0}
 .chartbox .goal-line{position:absolute; left:0; right:0; border-top:1.5px dashed var(--amber); opacity:.65; pointer-events:none}
 /* 達成カレンダー (GitHub草スタイル) */
 .fcal{display:grid; grid-template-columns:repeat(7,1fr); gap:4px}
@@ -315,6 +317,6 @@ nav.tabbar button.on{color:var(--teal)}
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
-<script src="app.js?v=0.5.14"></script>
+<script src="app.js?v=0.5.15"></script>
 </body>
 </html>

@@ -484,12 +484,14 @@ function bodyTile(ic,lab,val,unit,fn){
 let _statsRange=7;  // 7 or 30
 let _calMode='fast';       // 達成カレンダーの表示レイヤー: fast | supp
 let _bodyMetric='weight';  // からだ推移の表示指標: weight | fat | muscle
-function setStatsRange(n){ _statsRange=n; renderStats(); }
-function setCalMode(m){ _calMode=m; renderStats(); }
-function setBodyMetric(m){ _bodyMetric=m; renderStats(); }
+let _keepScroll=null;      // 再描画時にスクロール位置を維持 (トグル操作で最上部に飛ぶのを防ぐ)
+function setStatsRange(n){ _keepScroll=window.scrollY; _statsRange=n; renderStats(); }
+function setCalMode(m){ _keepScroll=window.scrollY; _calMode=m; renderStats(); }
+function setBodyMetric(m){ _keepScroll=window.scrollY; _bodyMetric=m; renderStats(); }
 async function renderStats(){
   const el=q('#viewStats'); const N=_statsRange;
-  el.innerHTML=`<div class="empty">${N}日間のデータを集計中…</div>`;
+  // 初回のみプレースホルダ表示。トグル再描画時は旧内容を残す (ページが縮んでスクロールが最上部に飛ぶのを防ぐ)
+  if(!el.firstChild) el.innerHTML=`<div class="empty">${N}日間のデータを集計中…</div>`;
   const days=[]; for(let i=N-1;i>=0;i--) days.push(shiftDate(todayStr(),-i));
   const snaps=await Promise.all(days.map(d=> uref('days/'+d).once('value').then(s=>s.val()||{}) ));
   const data=days.map((d,i)=>{
@@ -626,19 +628,20 @@ async function renderStats(){
     </div>
     ${_bodyMetric==='weight'?predHtml:''}
     <h2 class="sec">カロリー (${N}日)</h2>
-    <div class="card"><div class="chartbox">
+    <div class="card"><div class="chartbox${N>7?' dense':''}">
       <i class="goal-line" style="bottom:${Math.round(16+(GOALS.calorie/maxK)*100)}px"></i>
-      ${data.map(d=>{const h=Math.max(3,Math.round((d.kcal/maxK)*100));const over=d.kcal>GOALS.calorie;
-        return `<div class="col"><div class="vlab">${N<=7&&d.kcal?d.kcal.toLocaleString():''}</div><div class="bb" style="height:${h}px;background:${d.kcal?(over?'linear-gradient(180deg,#fb7185,#e11d48)':'linear-gradient(180deg,#34d399,#059669)'):'var(--bg2)'}"></div><div class="lab">${d.date.slice(8)}</div></div>`}).join('')}
+      ${data.map((d,i)=>{const h=Math.max(3,Math.round((d.kcal/maxK)*100));const over=d.kcal>GOALS.calorie;
+        return `<div class="col"><div class="vlab">${N<=7&&d.kcal?d.kcal.toLocaleString():''}</div><div class="bb" style="height:${h}px;background:${d.kcal?(over?'linear-gradient(180deg,#fb7185,#e11d48)':'linear-gradient(180deg,#34d399,#059669)'):'var(--bg2)'}"></div><div class="lab">${(N<=7||i%5===0)?d.date.slice(8):''}</div></div>`}).join('')}
     </div><div class="legend"><span><i style="background:var(--green)"></i>目標内</span><span><i style="background:var(--rose)"></i>超過</span><span style="color:var(--amber)">- - 目標 ${GOALS.calorie.toLocaleString()}kcal</span></div></div>
     <h2 class="sec">歩数 (${N}日)</h2>
-    <div class="card"><div class="chartbox">
+    <div class="card"><div class="chartbox${N>7?' dense':''}">
       <i class="goal-line" style="bottom:${Math.round(16+(GOALS.steps/maxS)*100)}px"></i>
-      ${data.map(d=>{const h=Math.max(3,Math.round((d.steps/maxS)*100));const ok=d.steps>=GOALS.steps;
-        return `<div class="col"><div class="vlab">${N<=7&&d.steps?d.steps.toLocaleString():''}</div><div class="bb" style="height:${h}px;background:${d.steps?(ok?'linear-gradient(180deg,#34d399,#059669)':'linear-gradient(180deg,#60a5fa,#3b82f6)'):'var(--bg2)'}"></div><div class="lab">${d.date.slice(8)}</div></div>`}).join('')}
+      ${data.map((d,i)=>{const h=Math.max(3,Math.round((d.steps/maxS)*100));const ok=d.steps>=GOALS.steps;
+        return `<div class="col"><div class="vlab">${N<=7&&d.steps?d.steps.toLocaleString():''}</div><div class="bb" style="height:${h}px;background:${d.steps?(ok?'linear-gradient(180deg,#34d399,#059669)':'linear-gradient(180deg,#60a5fa,#3b82f6)'):'var(--bg2)'}"></div><div class="lab">${(N<=7||i%5===0)?d.date.slice(8):''}</div></div>`}).join('')}
     </div><div class="legend"><span><i style="background:var(--green)"></i>目標達成</span><span><i style="background:var(--blue)"></i>未達</span><span style="color:var(--amber)">- - 目標 ${GOALS.steps.toLocaleString()}歩</span></div></div>
     <div style="height:8px"></div>
     <button class="btn ghost block" onclick="openGoalSheet()">⚙️ 目標値を設定</button>`;
+  if(_keepScroll!=null){ window.scrollTo(0,_keepScroll); _keepScroll=null; }  // トグル操作時のスクロール位置復元
 }
 function hhDiff(a,b){ const pa=a.split(':'),pb=b.split(':'); return (pb[0]*60+ +pb[1]-(pa[0]*60+ +pa[1]))/60; }
 // SVG折れ線グラフ (points=[{x:label,y:val}], goalLine=目標値 or null)
