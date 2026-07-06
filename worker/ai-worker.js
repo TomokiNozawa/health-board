@@ -233,13 +233,16 @@ async function fetchRange(env, auth, n, endDate) {
   const end = /^\d{4}-\d{2}-\d{2}$/.test(endDate || "") ? endDate : jstDay(0);
   const dates = [];
   for (let i = n - 1; i >= 0; i--) dates.push(addDays(end, -i));
-  const [goals, ...vals] = await Promise.all([
+  const [goals, exercises, ...vals] = await Promise.all([
     fetch(base + "/settings/goals.json?auth=" + auth.idToken).then(r => r.json()).catch(() => null),
+    fetch(base + "/settings/exercises.json?auth=" + auth.idToken).then(r => r.json()).catch(() => null),
     ...dates.map(d => fetch(base + "/days/" + d + ".json?auth=" + auth.idToken).then(r => r.json()).catch(() => null))
   ]);
-  return { goals, days: dates.map((d, i) => summarizeDay(d, vals[i] || {})) };
+  const exNames = {};
+  (Array.isArray(exercises) ? exercises : Object.values(exercises || {})).forEach(e => { if (e && e.id) exNames[e.id] = e.name || e.id; });
+  return { goals, days: dates.map((d, i) => summarizeDay(d, vals[i] || {}, exNames)) };
 }
-function summarizeDay(date, v) {
+function summarizeDay(date, v, exNames) {
   let kcal = 0, p = 0, f = 0, c = 0; const meals = [];
   for (const k in (v.meals || {})) {
     const m = v.meals[k];
@@ -255,8 +258,22 @@ function summarizeDay(date, v) {
     weight: b.weight != null ? b.weight : null, bodyFatPct: b.fat != null ? b.fat : null, muscleKg: b.muscle != null ? b.muscle : null,
     sleepH: v.sleep != null ? v.sleep : null, waterMl: v.water != null ? v.water : null, activeKcal: v.active != null ? v.active : null,
     eatWindow: ats.length ? { firstMeal: ats[0], lastMeal: ats[ats.length - 1] } : null,
-    supplements: v.supplements || null, meals
+    supplements: v.supplements || null,
+    workout: summarizeWorkout(v.workout, exNames),
+    meals
   };
+}
+// 筋トレ: 実施した種目だけ {種目名: 回数|"done"} で返す (未実施日は null)
+function summarizeWorkout(w, exNames) {
+  if (!w || !w.exercises) return null;
+  const out = {};
+  for (const [id, e] of Object.entries(w.exercises)) {
+    const nm = (exNames && exNames[id]) || id;
+    if (e && e.done) out[nm] = "done";
+    else if (e && Number(e.count) > 0) out[nm] = Number(e.count);
+  }
+  if (w.note) out.note = String(w.note).slice(0, 100);
+  return Object.keys(out).length ? out : null;
 }
 function addDays(str, d) { const [y, m, dd] = str.split("-").map(Number); const t = new Date(Date.UTC(y, m - 1, dd + d)); return t.toISOString().slice(0, 10); }
 
