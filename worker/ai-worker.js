@@ -77,6 +77,61 @@ export default {
       }
     }
 
+    // ===== ChatGPT等の外部AI用 読み取りAPI =====
+    // GET /summary?days=7  header: X-Api-Key: SUMMARY_KEY
+    // 直近N日の食事/PFC/歩数/体組成/サプリ/食事ウィンドウ + 目標値 を返す (読み取り専用)
+    if (url.pathname === "/summary" && (request.method === "GET" || request.method === "POST")) {
+      try {
+        const key = request.headers.get("X-Api-Key") || url.searchParams.get("key") || "";
+        if (!env.SUMMARY_KEY || key !== env.SUMMARY_KEY) return json({ error: "unauthorized" }, 401, env, origin);
+        const n = Math.max(1, Math.min(31, Number(url.searchParams.get("days")) || 7));
+        const auth = await fbLogin(env);
+        if (!auth.idToken) return json({ error: "firebase auth failed" }, 502, env, origin);
+        const { days, goals } = await fetchRange(env, auth, n);
+        return json({ generatedAt: new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 16) + " JST", goals, days }, 200, env, origin);
+      } catch (e) { return json({ error: String(e && e.message || e) }, 500, env, origin); }
+    }
+
+    // ===== アプリ内コーチ (今日のFB) =====
+    // POST /coach  body: { date?: "YYYY-MM-DD" }  (CORS: アプリのオリジン限定、/estimate と同様)
+    if (url.pathname === "/coach" && request.method === "POST") {
+      try {
+        const b = await request.json().catch(() => ({}));
+        const date = /^\d{4}-\d{2}-\d{2}$/.test(b.date || "") ? b.date : jstDay(0);
+        const auth = await fbLogin(env);
+        if (!auth.idToken) return json({ error: "firebase auth failed" }, 502, env, origin);
+        const { days, goals } = await fetchRange(env, auth, 8, date);
+        const target = days[days.length - 1];
+        if (!target || (!target.meals.length && target.steps == null))
+          return json({ error: "この日の記録がまだありません" }, 400, env, origin);
+
+        const sys =
+          "あなたは減量・ボディメイク中のユーザーを日々サポートするパーソナルコーチです。\n" +
+          "渡されたJSON(目標値 goals と直近数日のデータ、最終日が対象日)を読み、対象日のフィードバックを日本語で書いてください。\n" +
+          "【構成】1) 今日の総評: 良かった点を具体的な数字で2つ褒める 2) 改善点: あれば1〜2個、明日から実行できる具体策とセットで 3) 一言: 明日に向けた短い励まし。\n" +
+          "【トーン】親しみやすく簡潔に。全体で400字以内。絵文字は各セクション1個まで。\n" +
+          "【視点】カロリー収支、PFC(特にたんぱく質目標)、脂質の使い方、歩数、16:8ファスティング(食事ウィンドウ)、体重・筋肉量トレンド、サプリ継続。数字は必ずデータから引用し、推測で数字を作らない。";
+
+        const r = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
+          body: JSON.stringify({
+            model: MODEL_FAST, max_tokens: 800, system: sys,
+            messages: [{ role: "user", content: "対象日: " + date + "\n" + JSON.stringify({ goals, days }) }]
+          })
+        });
+        if (!r.ok) { const t = await r.text(); return json({ error: "anthropic " + r.status, detail: t.slice(0, 200) }, 502, env, origin); }
+        const data = await r.json();
+        const text = (data.content || []).filter(c => c.type === "text").map(c => c.text).join("\n").trim();
+        // 生成結果を days/{date}/coach に保存 (アプリで見返せる)
+        const base = env.FIREBASE_DB_URL.replace(/\/$/, "") + "/healthData/" + auth.localId + "/days/" + date;
+        await fetch(base + "/coach.json?auth=" + auth.idToken, {
+          method: "PUT", body: JSON.stringify({ text, ts: Date.now() })
+        }).catch(() => {});
+        return json({ date, feedback: text }, 200, env, origin);
+      } catch (e) { return json({ error: String(e && e.message || e) }, 500, env, origin); }
+    }
+
     if (url.pathname !== "/estimate" || request.method !== "POST")
       return json({ error: "not found" }, 404, env, origin);
 
@@ -164,6 +219,47 @@ export default {
   }
 };
 
+/* ---- 共通: Firebaseログイン & 日次サマリー取得 (/summary, /coach 用) ---- */
+async function fbLogin(env) {
+  return await (await fetch(
+    "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=" + env.FIREBASE_API_KEY,
+    { method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: env.HEALTH_EMAIL, password: env.HEALTH_PASSWORD, returnSecureToken: true }) }
+  )).json();
+}
+// endDate(既定=今日JST) を最終日として直近n日分を取得し、日次サマリー配列 + 目標値を返す
+async function fetchRange(env, auth, n, endDate) {
+  const base = env.FIREBASE_DB_URL.replace(/\/$/, "") + "/healthData/" + auth.localId;
+  const end = /^\d{4}-\d{2}-\d{2}$/.test(endDate || "") ? endDate : jstDay(0);
+  const dates = [];
+  for (let i = n - 1; i >= 0; i--) dates.push(addDays(end, -i));
+  const [goals, ...vals] = await Promise.all([
+    fetch(base + "/settings/goals.json?auth=" + auth.idToken).then(r => r.json()).catch(() => null),
+    ...dates.map(d => fetch(base + "/days/" + d + ".json?auth=" + auth.idToken).then(r => r.json()).catch(() => null))
+  ]);
+  return { goals, days: dates.map((d, i) => summarizeDay(d, vals[i] || {})) };
+}
+function summarizeDay(date, v) {
+  let kcal = 0, p = 0, f = 0, c = 0; const meals = [];
+  for (const k in (v.meals || {})) {
+    const m = v.meals[k];
+    kcal += Number(m.kcal) || 0; p += Number(m.p) || 0; f += Number(m.f) || 0; c += Number(m.c) || 0;
+    meals.push({ name: String(m.name || "").slice(0, 50), kcal: Math.round(Number(m.kcal) || 0), at: m.at || null, type: m.type || null });
+  }
+  meals.sort((a, b) => String(a.at || "99").localeCompare(String(b.at || "99")));
+  const ats = meals.map(m => m.at).filter(Boolean);
+  const b = v.body || {};
+  return {
+    date, kcal: Math.round(kcal), p: dec1(p), f: dec1(f), c: dec1(c),
+    steps: v.steps != null ? v.steps : null,
+    weight: b.weight != null ? b.weight : null, bodyFatPct: b.fat != null ? b.fat : null, muscleKg: b.muscle != null ? b.muscle : null,
+    sleepH: v.sleep != null ? v.sleep : null, waterMl: v.water != null ? v.water : null, activeKcal: v.active != null ? v.active : null,
+    eatWindow: ats.length ? { firstMeal: ats[0], lastMeal: ats[ats.length - 1] } : null,
+    supplements: v.supplements || null, meals
+  };
+}
+function addDays(str, d) { const [y, m, dd] = str.split("-").map(Number); const t = new Date(Date.UTC(y, m - 1, dd + d)); return t.toISOString().slice(0, 10); }
+
 function clampNum(v) { const n = Math.round(Number(v)); return isFinite(n) && n >= 0 ? Math.min(n, 100000) : 0; }
 function dec1(v) { const n = Number(v); return isFinite(n) && n >= 0 ? Math.round(Math.min(n, 100000) * 10) / 10 : 0; }
 function jstToday() { return jstDay(0); }
@@ -173,7 +269,7 @@ function cors(env, origin) {
   const ok = allow === "*" || allow.split(",").map(s => s.trim()).includes(origin);
   return {
     "Access-Control-Allow-Origin": ok ? (allow === "*" ? "*" : origin) : "null",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers": "content-type",
     "Access-Control-Max-Age": "86400"
   };

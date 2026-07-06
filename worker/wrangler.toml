@@ -3,8 +3,9 @@ main = "ai-worker.js"
 compatibility_date = "2024-12-01"
 
 # Secrets (set via: npx wrangler secret put <NAME>):
-#   ANTHROPIC_API_KEY  — Anthropic APIキー (写真AI)
+#   ANTHROPIC_API_KEY  — Anthropic APIキー (写真AI / コーチFB)
 #   INGEST_KEY         — 歩数取り込み用の秘密キー (ショートカットが送る)
+#   SUMMARY_KEY        — /summary 読み取りAPI用キー (ChatGPT カスタムGPT Actions が送る)
 #   HEALTH_EMAIL       — HealthBoardログインメール
 #   HEALTH_PASSWORD    — HealthBoardログインパスワード
 # Vars (非機密。公開アプリにも載っている値):

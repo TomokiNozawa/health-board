@@ -319,7 +319,35 @@ async function renderHome(){
         <button class="btn grow" onclick="addWater(500)">💧 +500ml</button>
         <button class="btn grow" onclick="openBodySheet()">⚖️ 体重</button>
       </div>
+      <button class="btn block" style="margin-top:10px" onclick="openCoachSheet()">🤖 今日のフィードバック${DAY.coach?' ✓':''}</button>
     </div>`;
+}
+
+/* ---------- AIコーチ (今日のFB) ---------- */
+function openCoachSheet(){
+  const cached = DAY.coach;
+  sheet(`<h3>🤖 ${curDate===todayStr()?'今日':fmtDateLabel(curDate)}のフィードバック</h3>
+    <div id="coachBody" style="white-space:pre-wrap;line-height:1.75;font-size:14px;min-height:90px;padding:4px 2px">${cached?esc(cached.text):''}</div>
+    ${cached?`<div class="tiny muted" style="margin:6px 2px">生成: ${fmtDateTime(new Date(cached.ts))}</div>`:''}
+    <div class="btn-row" style="margin-top:12px">
+      <button id="coachGenBtn" class="btn primary grow" onclick="genCoach()">${cached?'🔄 再生成':'✨ 生成する'}</button>
+      <button class="btn ghost grow" onclick="closeSheet()">閉じる</button>
+    </div>`);
+  if(!cached) genCoach();
+}
+async function genCoach(){
+  const el=q('#coachBody'); if(!el) return;
+  el.innerHTML='<div class="empty"><span class="ai-spin"></span> 直近1週間のデータを分析中…(10秒ほど)</div>';
+  const btn=q('#coachGenBtn'); if(btn) btn.disabled=true;
+  try{
+    const r = await fetch(AI_WORKER_URL+'/coach', { method:'POST',
+      headers:{'content-type':'application/json'}, body: JSON.stringify({ date: curDate }) });
+    const d = await r.json();
+    if(!r.ok || d.error) throw new Error(d.error || ('HTTP '+r.status));
+    if(q('#coachBody')) q('#coachBody').textContent = d.feedback;
+  }catch(e){
+    if(q('#coachBody')) q('#coachBody').innerHTML = '<span style="color:var(--bad)">エラー: '+esc(String(e.message||e))+'</span>';
+  }finally{ const b=q('#coachGenBtn'); if(b){ b.disabled=false; b.textContent='🔄 再生成'; } }
 }
 function fmtH(h){ const hh=Math.floor(h); const mm=Math.round((h-hh)*60); return mm>=60?(hh+1)+':00':hh+':'+String(mm).padStart(2,'0'); }
 function fmtHM(h){ let total=Math.max(0,Math.round(h*60)); const hh=Math.floor(total/60), mm=total%60; return hh+'時間'+String(mm).padStart(2,'0')+'分'; }
