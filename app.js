@@ -40,6 +40,7 @@ const DEFAULT_EXERCISES = [
 const SUPPLEMENTS = [
   { id:'multi', name:'マルチビタミン', icon:'🌈', hint:'1日3粒・昼食後がおすすめ', dose:'3粒', mealType:'lunch',  kcal:2.7, p:0.2, f:0, c:0.4 },
   { id:'zinc',  name:'亜鉛・マカ',     icon:'⚡', hint:'1日2粒・夕食後がおすすめ', dose:'2粒', mealType:'dinner', kcal:1.5, p:0,   f:0, c:0.3 },
+  { id:'vitd',  name:'ビタミンD',      icon:'☀️', hint:'1日1粒・夕食後がおすすめ', dose:'1粒', mealType:'dinner', kcal:0.8, p:0,   f:0, c:0.2 },
 ];
 
 // 食事写真AI推定 Worker (Phase 2-B)。デプロイ後にURL確定。
