@@ -92,6 +92,43 @@ export default {
       } catch (e) { return json({ error: String(e && e.message || e) }, 500, env, origin); }
     }
 
+    // ===== ChatGPT等の外部AI用 書き込みAPI =====
+    // POST /record  header: X-Api-Key: SUMMARY_KEY
+    // body: { date?: "YYYY-MM-DD", weight?, fat?, muscle? }  (JST当日が既定)
+    // 体組成を days/{date}/body/ に書く (アプリの ⚖️からだ と同じ場所、/ingest と同ロジック)
+    if (url.pathname === "/record" && request.method === "POST") {
+      try {
+        const key = request.headers.get("X-Api-Key") || url.searchParams.get("key") || "";
+        if (!env.SUMMARY_KEY || key !== env.SUMMARY_KEY) return json({ error: "unauthorized" }, 401, env, origin);
+        const b = await request.json().catch(() => ({}));
+        const date = /^\d{4}-\d{2}-\d{2}$/.test(b.date || "")
+          ? b.date
+          : (b.day === "yesterday" ? jstDay(-1) : jstDay(0));
+        // 値があり > 0 の項目だけ書く (0/null/負値は「記録なし」扱いでスキップ)
+        const fields = {};
+        for (const k of ["weight", "fat", "muscle"]) {
+          if (b[k] != null && Number(b[k]) > 0) fields[k] = dec1(b[k]);
+        }
+        if (!Object.keys(fields).length)
+          return json({ error: "weight/fat/muscle のいずれか (>0) が必要" }, 400, env, origin);
+        // 現実的な範囲チェック (誤登録ガード: 体重20-300kg, 体脂肪率3-60%, 筋肉量10-100kg)
+        const range = { weight: [20, 300], fat: [3, 60], muscle: [10, 100] };
+        for (const [k, v] of Object.entries(fields)) {
+          if (v < range[k][0] || v > range[k][1])
+            return json({ error: k + "=" + v + " は範囲外 (" + range[k][0] + "〜" + range[k][1] + ")" }, 400, env, origin);
+        }
+        const auth = await fbLogin(env);
+        if (!auth.idToken) return json({ error: "firebase auth failed" }, 502, env, origin);
+        const base = env.FIREBASE_DB_URL.replace(/\/$/, "") + "/healthData/" + auth.localId + "/days/" + date;
+        const results = {};
+        for (const [k, v] of Object.entries(fields)) {
+          const r = await fetch(base + "/body/" + k + ".json?auth=" + auth.idToken, { method: "PUT", body: String(v) });
+          results[k] = r.ok ? v : ("err " + r.status);
+        }
+        return json({ ok: true, date, ...results }, 200, env, origin);
+      } catch (e) { return json({ error: String(e && e.message || e) }, 500, env, origin); }
+    }
+
     // ===== アプリ内コーチ (今日のFB) =====
     // POST /coach  body: { date?: "YYYY-MM-DD" }  (CORS: アプリのオリジン限定、/estimate と同様)
     if (url.pathname === "/coach" && request.method === "POST") {
