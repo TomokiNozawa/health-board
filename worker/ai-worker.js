@@ -26,7 +26,11 @@ export default {
     if (url.pathname === "/ingest" && request.method === "POST") {
       try {
         const b = await request.json();
-        if (!env.INGEST_KEY || b.key !== env.INGEST_KEY) return json({ error: "unauthorized" }, 401, env, origin);
+        // 認証: ショートカット(body.key=INGEST_KEY) または ChatGPT GPT Actions(ヘッダー X-Api-Key=SUMMARY_KEY)
+        const headerKey = request.headers.get("X-Api-Key") || "";
+        const okShortcut = env.INGEST_KEY && b.key === env.INGEST_KEY;
+        const okGpt = env.SUMMARY_KEY && headerKey === env.SUMMARY_KEY;
+        if (!okShortcut && !okGpt) return json({ error: "unauthorized" }, 401, env, origin);
         const date = /^\d{4}-\d{2}-\d{2}$/.test(b.date || "")
           ? b.date
           : (b.day === "yesterday" ? jstDay(-1) : jstDay(0));
@@ -35,10 +39,11 @@ export default {
         // 体重・体脂肪: 値があり > 0 の時だけ書く(測ってない日は送らない=記録なし)
         const weight = (b.weight != null && Number(b.weight) > 0) ? dec1(b.weight) : null;
         const fat    = (b.fat    != null && Number(b.fat)    > 0) ? dec1(b.fat)    : null;
+        const muscle = (b.muscle != null && Number(b.muscle) > 0) ? dec1(b.muscle) : null;
         // アクティブ消費カロリー(Apple Watch)
         const active = b.active != null ? clampNum(b.active) : null;
-        if (steps == null && sleep == null && weight == null && fat == null && active == null)
-          return json({ error: "steps/sleep/weight/fat/active のいずれかが必要" }, 400, env, origin);
+        if (steps == null && sleep == null && weight == null && fat == null && muscle == null && active == null)
+          return json({ error: "steps/sleep/weight/fat/muscle/active のいずれかが必要" }, 400, env, origin);
 
         // Firebase Auth REST でログイン → idToken
         const auth = await (await fetch(
@@ -66,6 +71,10 @@ export default {
         if (fat != null) {
           const r = await fetch(base + "/body/fat.json?auth=" + auth.idToken, { method: "PUT", body: String(fat) });
           results.fat = r.ok ? fat : ("err " + r.status);
+        }
+        if (muscle != null) {
+          const r = await fetch(base + "/body/muscle.json?auth=" + auth.idToken, { method: "PUT", body: String(muscle) });
+          results.muscle = r.ok ? muscle : ("err " + r.status);
         }
         if (active != null) {
           const r = await fetch(base + "/active.json?auth=" + auth.idToken, { method: "PUT", body: String(active) });
