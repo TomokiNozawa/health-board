@@ -1215,6 +1215,14 @@ function doLogout(){ auth.signOut().then(()=>{ closeSheet(); toast('ログアウ
 
 /* ===================== nav ===================== */
 function setTab(t){ curTab=t; q('.tabbar').querySelectorAll('button').forEach(b=>b.classList.toggle('on',b.dataset.tab===t)); render(); }
+// ヘッダーのタイトルタップ: 今日のホームへ (タブ=Home + 日付=今日)
+function goHomeToday(){
+  const backDate = curDate!==todayStr();
+  if(backDate) curDate=todayStr();
+  if(curTab!=='Home') setTab('Home');
+  if(backDate) watchDay();          // 日付が変わった時のみ購読し直す (setTab未実行でも再描画)
+  window.scrollTo(0,0);
+}
 function q(s){ return document.querySelector(s); }
 
 function bindEvents(){
@@ -1223,6 +1231,7 @@ function bindEvents(){
   q('.tabbar').querySelectorAll('button').forEach(b=> b.onclick=()=>setTab(b.dataset.tab));
   q('#fab').onclick=()=>{ if(curTab==='Workout'){ openExerciseEditor(); } else if(curTab==='Body'){ openBodySheet(); } else { openMealSheet(); } };
   q('#acctBtn').onclick=openAcct;
+  q('.h-title').onclick=goHomeToday;
   q('#prevDay').onclick=()=>{ curDate=shiftDate(curDate,-1); watchDay(); };
   q('#nextDay').onclick=()=>{ if(curDate<todayStr()){ curDate=shiftDate(curDate,1); watchDay(); } };
   q('#curDate').onclick=()=>{ if(curDate!==todayStr()){ curDate=todayStr(); watchDay(); toast('今日に戻りました'); } };
